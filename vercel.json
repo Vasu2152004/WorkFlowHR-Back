@@ -2,26 +2,26 @@
   "version": 2,
   "builds": [
     {
-      "src": "server-minimal.js",
+      "src": "server.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/health",
-      "dest": "/server-minimal.js"
+      "dest": "/server.js"
     },
     {
       "src": "/test",
-      "dest": "/server-minimal.js"
+      "dest": "/server.js"
     },
     {
       "src": "/api/(.*)",
-      "dest": "/server-minimal.js"
+      "dest": "/server.js"
     },
     {
       "src": "/(.*)",
-      "dest": "/server-minimal.js"
+      "dest": "/server.js"
     }
   ],
   "env": {

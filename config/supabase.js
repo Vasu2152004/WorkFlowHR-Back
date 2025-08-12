@@ -7,7 +7,21 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
 // Check if environment variables are set
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Supabase environment variables not found. Please create a .env file with your Supabase credentials.');
+  console.warn('⚠️  Supabase environment variables not found. Supabase functionality will be disabled.');
+  console.warn('Please set SUPABASE_URL and SUPABASE_ANON_KEY in your environment variables.');
+  
+  // Export dummy clients that won't crash the app
+  module.exports = {
+    supabase: {
+      auth: { signUp: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) },
+      from: () => ({ select: () => ({ single: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) }) })
+    },
+    supabaseAdmin: {
+      auth: { admin: { createUser: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) } },
+      from: () => ({ select: () => ({ single: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) }) })
+    }
+  };
+  return;
 }
 
 // Create Supabase client with retry options and timeout
