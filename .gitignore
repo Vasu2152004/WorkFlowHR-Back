@@ -180,3 +180,4 @@ dump.rdb
 # Logs (additional)
 *.log.*
 logs/*.log 
+.vercel

@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import axios from 'axios'
 import { toast } from 'react-hot-toast'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const AuthContext = createContext()
 
@@ -21,7 +19,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('access_token')
     if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
       fetchProfile()
     } else {
       setLoading(false)
@@ -30,7 +27,7 @@ export const AuthProvider = ({ children }) => {
 
   const fetchProfile = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/auth/profile`)
+      const response = await apiService.get(API_ENDPOINTS.PROFILE)
       setUser(response.data.user)
     } catch (error) {
       if (error.response?.status === 401) {
@@ -43,12 +40,11 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/login`, { email, password })
+      const response = await apiService.post(API_ENDPOINTS.LOGIN, { email, password })
       const { access_token, refresh_token, user } = response.data
       
       localStorage.setItem('access_token', access_token)
       localStorage.setItem('refresh_token', refresh_token)
-      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
       
       setUser(user)
       toast.success('Login successful!')
@@ -67,7 +63,7 @@ export const AuthProvider = ({ children }) => {
         password,
         company_name
       }
-      const response = await axios.post(`${API_BASE_URL}/auth/signup`, userData)
+      const response = await apiService.post(API_ENDPOINTS.SIGNUP, userData)
       toast.success('Account created successfully! Please login.')
       return true
     } catch (error) {
@@ -79,7 +75,6 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
-    delete axios.defaults.headers.common['Authorization']
     setUser(null)
     toast.success('Logged out successfully')
   }
@@ -90,8 +85,7 @@ export const AuthProvider = ({ children }) => {
     signup,
     logout,
     loading,
-    isAuthenticated: !!user,
-    API_BASE_URL
+    isAuthenticated: !!user
   }
 
   return (

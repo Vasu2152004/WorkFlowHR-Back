@@ -21,7 +21,15 @@ let emailRoutes = null
 try {
   emailRoutes = require('./routes/email')
 } catch (error) {
-  // Email routes not available - email functionality disabled
+  console.warn('⚠️  Email routes not available - email functionality disabled:', error.message)
+}
+
+// Validate critical routes
+const requiredRoutes = [authRoutes, userRoutes, documentRoutes, leaveRoutes, teamLeadRoutes, hrManagerRoutes, salaryRoutes, workingDaysRoutes, companyCalendarRoutes]
+const missingRoutes = requiredRoutes.filter(route => !route)
+
+if (missingRoutes.length > 0) {
+  console.warn('⚠️  Some required routes are missing:', missingRoutes.length, 'routes failed to load')
 }
 
 const app = express()
@@ -34,12 +42,15 @@ if (NODE_ENV === 'production') {
   const missingVars = requiredEnvVars.filter(varName => !process.env[varName])
   
   if (missingVars.length > 0) {
-    console.error('❌ Missing required environment variables in production:', missingVars)
-    console.error('Please set all required environment variables before deploying to production')
-    process.exit(1)
+    console.warn('⚠️  Missing required environment variables in production:', missingVars)
+    console.warn('Please set all required environment variables before deploying to production')
+    // Don't exit in serverless environment, just log warning
+    if (process.env.VERCEL !== '1') {
+      process.exit(1)
+    }
+  } else {
+    console.log('✅ All required environment variables are set for production')
   }
-  
-  console.log('✅ All required environment variables are set for production')
 }
 
 // Security middleware
