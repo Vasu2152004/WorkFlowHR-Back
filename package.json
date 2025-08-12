@@ -20,7 +20,8 @@
     "verify-email": "node verify-email-update.js",
     "health-check": "curl -f http://localhost:3000/health || exit 1",
     "start:prod": "NODE_ENV=production node server.js",
-    "validate:env": "node -e \"require('dotenv').config(); const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'JWT_SECRET']; const missing = required.filter(v => !process.env[v]); if(missing.length > 0) { console.error('Missing:', missing); process.exit(1); } console.log('✅ Environment validation passed');\""
+    "validate:env": "node -e \"require('dotenv').config(); const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'JWT_SECRET']; const missing = required.filter(v => !process.env[v]); if(missing.length > 0) { console.error('Missing:', missing); process.exit(1); } console.log('✅ Environment validation passed');\"",
+    "test:prod": "node test-production.js"
   },
   "keywords": [
     "workflowhr",

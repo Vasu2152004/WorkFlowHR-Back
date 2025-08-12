@@ -96,6 +96,12 @@ app.use(express.urlencoded({
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now()
+  
+  // Log all incoming requests in production for debugging
+  if (NODE_ENV === 'production') {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.get('Origin') || 'Unknown'}`)
+  }
+  
   res.on('finish', () => {
     const duration = Date.now() - start
     const logMessage = `${new Date().toISOString()} - ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`
@@ -130,7 +136,9 @@ app.get('/health', (req, res) => {
       version: process.env.npm_package_version || '1.0.0',
       supabase_configured: hasSupabaseUrl && hasSupabaseKey,
       supabase_url_set: hasSupabaseUrl,
-      supabase_key_set: hasSupabaseKey
+      supabase_key_set: hasSupabaseKey,
+      routes: ['/health', '/api/*'],
+      vercel: process.env.VERCEL === '1'
     })
   } catch (error) {
     res.status(500).json({
@@ -139,6 +147,18 @@ app.get('/health', (req, res) => {
       timestamp: new Date().toISOString()
     })
   }
+})
+
+// Route testing endpoint
+app.get('/test', (req, res) => {
+  res.json({
+    message: 'Route testing successful',
+    timestamp: new Date().toISOString(),
+    environment: NODE_ENV,
+    path: req.path,
+    method: req.method,
+    headers: req.headers
+  })
 })
 
 // API routes
@@ -161,6 +181,20 @@ if (emailRoutes) {
 if (NODE_ENV === 'development') {
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'frontend/dist/index.html'))
+  })
+} else {
+  // In production, handle all routes that don't match API routes
+  app.get('*', (req, res) => {
+    // If it's not an API route, return a simple response
+    if (!req.path.startsWith('/api/') && req.path !== '/health') {
+      res.status(404).json({ 
+        error: 'Route not found',
+        message: 'This is a backend API server. Frontend routes are not available.',
+        availableRoutes: ['/health', '/api/*']
+      })
+    } else {
+      res.status(404).json({ error: 'Route not found' })
+    }
   })
 }
 
