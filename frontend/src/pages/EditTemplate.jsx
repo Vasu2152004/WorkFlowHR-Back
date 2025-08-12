@@ -37,9 +37,10 @@ import {
 import { toast } from 'react-hot-toast'
 import RichTextEditor from '../components/RichTextEditor'
 import DocumentThemes from '../components/DocumentThemes'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const EditTemplate = () => {
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const { id } = useParams()
   const navigate = useNavigate()
   const [documentName, setDocumentName] = useState('')
@@ -84,14 +85,9 @@ const EditTemplate = () => {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/documents/templates/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
+      const response = await apiService.get(API_ENDPOINTS.GET_TEMPLATE(id))
 
-      if (!response.ok) {
+      if (response.status !== 200) {
         if (response.status === 401) {
           toast.error('Session expired. Please login again.')
           return
@@ -109,7 +105,7 @@ const EditTemplate = () => {
         throw new Error(`Failed to fetch template: ${response.status}`)
       }
 
-      const data = await response.json()
+      const data = response.data
       const template = data.template
       
       if (template) {
@@ -268,21 +264,14 @@ const EditTemplate = () => {
 
     try {
       const token = localStorage.getItem('access_token')
-      const response = await fetch(`${API_BASE_URL}/documents/templates/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          document_name: documentName.trim(),
-          field_tags: fieldTags,
-          content: content,
-          settings: templateSettings
-        })
+      const response = await apiService.put(API_ENDPOINTS.UPDATE_TEMPLATE(id), {
+        document_name: documentName.trim(),
+        field_tags: fieldTags,
+        content: content,
+        settings: templateSettings
       })
 
-      if (!response.ok) {
+      if (response.status !== 200) {
         if (response.status === 401) {
           toast.error('Session expired. Please login again.')
           return
@@ -291,11 +280,11 @@ const EditTemplate = () => {
           toast.error('Access denied. You need HR permissions to edit templates.')
           return
         }
-        const errorData = await response.json()
+        const errorData = response.data
         throw new Error(errorData.error || 'Failed to update template')
       }
 
-      const data = await response.json()
+      const data = response.data
       setSuccess('Template updated successfully!')
       toast.success('Template updated successfully!')
       

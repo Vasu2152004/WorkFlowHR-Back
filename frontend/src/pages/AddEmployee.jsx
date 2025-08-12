@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { User, Mail, Building, Briefcase, DollarSign, Calendar, Phone, MapPin, FileText, ArrowLeft, Plus, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
-import axios from 'axios' // Added axios import
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 export default function AddEmployee() {
   const { user, isAuthenticated } = useAuth()
@@ -99,61 +99,37 @@ export default function AddEmployee() {
     return `EMP${timestamp}${random}`
   }
 
-  const generatePassword = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*'
-    let password = ''
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
-    return password
-  }
-
   const validateForm = () => {
     if (!formData.full_name.trim()) {
       setError('Full name is required')
+      toast.error('Full name is required')
       return false
     }
     if (!formData.email.trim()) {
       setError('Email is required')
+      toast.error('Email is required')
       return false
     }
-    if (!formData.department.trim()) {
+    if (!formData.department) {
       setError('Department is required')
+      toast.error('Department is required')
       return false
     }
-    if (!formData.designation.trim()) {
+    if (!formData.designation) {
       setError('Designation is required')
+      toast.error('Designation is required')
       return false
     }
-    if (!formData.salary || parseFloat(formData.salary) <= 0) {
-      setError('Valid salary is required')
+    if (!formData.salary) {
+      setError('Salary is required')
+      toast.error('Salary is required')
       return false
     }
     if (!formData.joining_date) {
       setError('Joining date is required')
+      toast.error('Joining date is required')
       return false
     }
-
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(formData.email)) {
-      setError('Please enter a valid email address')
-      return false
-    }
-
-    // Salary validation
-    const salary = parseFloat(formData.salary)
-    if (isNaN(salary) || salary <= 0) {
-      setError('Please enter a valid salary amount')
-      return false
-    }
-
-    // Phone validation (if provided)
-    if (formData.phone_number && !/^[\+]?[1-9][\d]{0,15}$/.test(formData.phone_number.replace(/\s/g, ''))) {
-      setError('Please enter a valid phone number')
-      return false
-    }
-
     return true
   }
 
@@ -167,12 +143,6 @@ export default function AddEmployee() {
       // Validate form
       if (!validateForm()) {
         return
-      }
-
-      // Get token from localStorage
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        throw new Error('Authentication token not found. Please login again.')
       }
 
       // Create employee data
@@ -191,55 +161,48 @@ export default function AddEmployee() {
         leave_balance: parseInt(formData.leave_balance)
       }
 
-      // Send to backend API
-      const response = await fetch('http://localhost:3000/api/users/employees', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(employeeData)
-      })
+      // Send to backend API using apiService
+      const response = await apiService.post(API_ENDPOINTS.USERS + '/employees', employeeData)
 
-      const result = await response.json()
+      if (response.status === 201 || response.status === 200) {
+        const result = response.data
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          // Token expired or invalid
-          localStorage.removeItem('token')
-          toast.error('Session expired. Please login again.')
-          navigate('/login')
-          return
-        }
-        throw new Error(result.error || 'Failed to create employee')
+        // Show success message with credentials
+        setSuccess(`Employee created successfully! 
+          Employee ID: ${result.employee.employee_id}
+          Password: ${result.employee.password}
+          Email sent to: ${result.employee.email}`)
+
+        // Reset form
+        setFormData({
+          full_name: '',
+          email: '',
+          department: '',
+          designation: '',
+          salary: '',
+          joining_date: '',
+          phone_number: '',
+          address: '',
+          emergency_contact: '',
+          pan_number: '',
+          bank_account: '',
+          leave_balance: '20'
+        })
+
+        // Show toast notification
+        toast.success('Employee created successfully! Welcome email sent.')
+      } else {
+        throw new Error('Failed to create employee')
       }
 
-      // Show success message with credentials
-      setSuccess(`Employee created successfully! 
-        Employee ID: ${result.employee.employee_id}
-        Password: ${result.employee.password}
-        Email sent to: ${result.employee.email}`)
-
-      // Reset form
-      setFormData({
-        full_name: '',
-        email: '',
-        department: '',
-        designation: '',
-        salary: '',
-        joining_date: '',
-        phone_number: '',
-        address: '',
-        emergency_contact: '',
-        pan_number: '',
-        bank_account: '',
-        leave_balance: '20'
-      })
-
-      // Show toast notification
-      toast.success('Employee created successfully! Welcome email sent.')
-
     } catch (error) {
+      if (error.response?.status === 401) {
+        // Token expired or invalid
+        localStorage.removeItem('access_token')
+        toast.error('Session expired. Please login again.')
+        navigate('/login')
+        return
+      }
       setError(error.message || 'Failed to create employee')
       toast.error(error.message || 'Failed to create employee')
     } finally {

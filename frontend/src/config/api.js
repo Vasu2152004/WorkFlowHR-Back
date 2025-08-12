@@ -26,7 +26,7 @@ const getApiBaseUrl = () => {
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('access_token'); // Fixed: use access_token instead of token
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -45,8 +45,9 @@ api.interceptors.response.use(
   (error) => {
     // Handle 401 Unauthorized - redirect to login
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      localStorage.removeItem('access_token'); // Fixed: use access_token instead of token
+      localStorage.removeItem('refresh_token'); // Fixed: use refresh_token instead of user
+      localStorage.removeItem('user'); // Keep user removal for consistency
       window.location.href = '/login';
     }
     
@@ -78,7 +79,8 @@ export const API_ENDPOINTS = {
   
   // Document endpoints
   DOCUMENTS: '/documents',
-  DOCUMENT_BY_ID: (id) => `/documents/${id}`,
+  GET_TEMPLATE: (id) => `/documents/templates/${id}`,
+  UPDATE_TEMPLATE: (id) => `/documents/templates/${id}`,
   
   // Leave endpoints
   LEAVES: '/leaves',
@@ -87,6 +89,7 @@ export const API_ENDPOINTS = {
   // Salary endpoints
   SALARY: '/salary',
   SALARY_BY_ID: (id) => `/salary/${id}`,
+  SALARY_SLIPS: '/salary/my-slips',
   
   // Working days endpoints
   WORKING_DAYS: '/working-days',
@@ -99,22 +102,30 @@ export const API_ENDPOINTS = {
 export const apiService = {
   // Generic GET request
   get: (endpoint, config = {}) => {
-    return api.get(`${getApiBaseUrl()}${endpoint}`, config);
+    const url = `${getApiBaseUrl()}${endpoint}`;
+    console.log('🌐 API GET Request:', url); // Debug logging
+    return api.get(url, config);
   },
   
   // Generic POST request
   post: (endpoint, data = {}, config = {}) => {
-    return api.post(`${getApiBaseUrl()}${endpoint}`, data, config);
+    const url = `${getApiBaseUrl()}${endpoint}`;
+    console.log('🌐 API POST Request:', url, data); // Debug logging
+    return api.post(url, data, config);
   },
   
   // Generic PUT request
   put: (endpoint, data = {}, config = {}) => {
-    return api.put(`${getApiBaseUrl()}${endpoint}`, data, config);
+    const url = `${getApiBaseUrl()}${endpoint}`;
+    console.log('🌐 API PUT Request:', url, data); // Debug logging
+    return api.put(url, data, config);
   },
   
   // Generic DELETE request
   delete: (endpoint, config = {}) => {
-    return api.delete(`${getApiBaseUrl()}${endpoint}`, config);
+    const url = `${getApiBaseUrl()}${endpoint}`;
+    console.log('🌐 API DELETE Request:', url); // Debug logging
+    return api.delete(url, config);
   },
   
   // File upload
@@ -137,6 +148,18 @@ export const healthCheck = async () => {
     return response.data;
   } catch (error) {
     console.error('Health check failed:', error);
+    throw error;
+  }
+};
+
+// API status check
+export const checkApiStatus = async () => {
+  try {
+    const response = await apiService.get('/status');
+    console.log('✅ API Status Check:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ API Status Check Failed:', error.response?.status, error.response?.data);
     throw error;
   }
 };

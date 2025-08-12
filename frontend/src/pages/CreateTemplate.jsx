@@ -35,9 +35,10 @@ import {
 import { toast } from 'react-hot-toast'
 import RichTextEditor from '../components/RichTextEditor'
 import DocumentThemes from '../components/DocumentThemes'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const CreateTemplate = () => {
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [documentName, setDocumentName] = useState('')
   const [fieldTags, setFieldTags] = useState([
     { tag: '', label: '' }
@@ -150,33 +151,20 @@ const CreateTemplate = () => {
 
   const validateForm = () => {
     if (!documentName.trim()) {
-      setError('Please enter a document name')
+      setError('Document name is required')
+      toast.error('Document name is required')
       return false
     }
-
-    if (!content.trim() || content === '<p>Start writing your document here...</p>') {
-      setError('Please add some content to your document')
+    if (!content.trim() || content === '<p></p>') {
+      setError('Document content is required')
+      toast.error('Document content is required')
       return false
     }
-
-    // Validate field tags
-    for (let i = 0; i < fieldTags.length; i++) {
-      const field = fieldTags[i]
-      if (!field.label.trim()) {
-        setError(`Please fill in the label for field ${i + 1}`)
-        return false
-      }
-      
-      // Check for duplicate tags
-      const duplicateIndex = fieldTags.findIndex((f, idx) => 
-        idx !== i && f.tag.trim() === field.tag.trim()
-      )
-      if (duplicateIndex !== -1) {
-        setError(`Duplicate field "${field.label}" found. Each field must be unique.`)
-        return false
-      }
+    if (fieldTags.length === 0 || fieldTags.some(field => !field.tag.trim())) {
+      setError('At least one field tag is required')
+      toast.error('At least one field tag is required')
+      return false
     }
-
     return true
   }
 
@@ -192,44 +180,35 @@ const CreateTemplate = () => {
     }
 
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`${API_BASE_URL}/documents/templates`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          document_name: documentName.trim(),
-          field_tags: fieldTags,
-          content: content,
-          settings: templateSettings
-        })
+      const response = await apiService.post(API_ENDPOINTS.DOCUMENTS + '/templates', {
+        document_name: documentName.trim(),
+        field_tags: fieldTags,
+        content: content,
+        settings: templateSettings
       })
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
-        }
-        if (response.status === 403) {
-          toast.error('Access denied. You need HR permissions to create templates.')
-          return
-        }
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to create template')
+      if (response.status === 201 || response.status === 200) {
+        const data = response.data
+        setSuccess('Template created successfully!')
+        toast.success('Template created successfully!')
+        
+        // Reset form
+        setDocumentName('')
+        setFieldTags([{ tag: '', label: '' }])
+        setContent('<p>Start writing your document here...</p>')
+        setIsPreviewMode(false)
+      } else {
+        throw new Error('Failed to create template')
       }
-
-      const data = await response.json()
-      setSuccess('Template created successfully!')
-      toast.success('Template created successfully!')
-      
-      // Reset form
-      setDocumentName('')
-      setFieldTags([{ tag: '', label: '' }])
-      setContent('<p>Start writing your document here...</p>')
-      setIsPreviewMode(false)
     } catch (error) {
+      if (error.response?.status === 401) {
+        toast.error('Session expired. Please login again.')
+        return
+      }
+      if (error.response?.status === 403) {
+        toast.error('Access denied. You need HR permissions to create templates.')
+        return
+      }
       setError(error.message || 'Failed to create template')
       toast.error(error.message || 'Failed to create template')
     } finally {

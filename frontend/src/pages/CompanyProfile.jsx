@@ -21,9 +21,10 @@ import {
   Info
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const CompanyProfile = () => {
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [company, setCompany] = useState(null)
   const [loading, setLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
@@ -60,41 +61,27 @@ const CompanyProfile = () => {
   const fetchCompanyProfile = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
+      const response = await apiService.get(API_ENDPOINTS.USERS + '/company/profile')
 
-      const response = await fetch('http://localhost:3000/api/users/company/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
-        }
+      if (response.status === 200) {
+        const data = response.data
+        setCompany(data.company)
+        setEditForm({
+          name: data.company.name || '',
+          description: data.company.description || '',
+          industry: data.company.industry || '',
+          founded_year: data.company.founded_year || '',
+          website: data.company.website || '',
+          phone: data.company.phone || '',
+          address: data.company.address || '',
+          email: data.company.email || '',
+          mission: data.company.mission || '',
+          vision: data.company.vision || '',
+          values: data.company.values || ''
+        })
+      } else {
         throw new Error('Failed to fetch company profile')
       }
-
-      const data = await response.json()
-      setCompany(data.company)
-      setEditForm({
-        name: data.company.name || '',
-        description: data.company.description || '',
-        industry: data.company.industry || '',
-        founded_year: data.company.founded_year || '',
-        website: data.company.website || '',
-        phone: data.company.phone || '',
-        address: data.company.address || '',
-        email: data.company.email || '',
-        mission: data.company.mission || '',
-        vision: data.company.vision || '',
-        values: data.company.values || ''
-      })
     } catch (error) {
       toast.error('Failed to fetch company profile')
     } finally {
@@ -105,23 +92,13 @@ const CompanyProfile = () => {
   // Fetch working days configuration
   const fetchWorkingDaysConfig = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
+      const response = await apiService.get(API_ENDPOINTS.WORKING_DAYS + '/config')
 
-      const response = await fetch(`${API_BASE_URL}/working-days/config`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
+      if (response.status === 200) {
+        const data = response.data
         setWorkingDaysConfig(data.config)
       } else {
-        const error = await response.json()
+        const error = response.data
         // Don't show error toast for default config, just log it
         if (response.status !== 404) {
           toast.error(error.error || 'Failed to fetch working days configuration')
@@ -161,29 +138,17 @@ const CompanyProfile = () => {
 
   const handleSave = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch('http://localhost:3000/api/users/company/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(editForm)
-      })
+      const response = await apiService.put(API_ENDPOINTS.USERS + '/company/profile', editForm)
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
-        }
-        const errorData = await response.json()
+      if (response.status === 200) {
+        const data = response.data
+        setCompany(data.company)
+        setIsEditing(false)
+        toast.success('Company profile updated successfully!')
+      } else {
+        const errorData = response.data
         throw new Error(errorData.error || 'Failed to update company profile')
       }
-
-      const data = await response.json()
-      setCompany(data.company)
-      setIsEditing(false)
-      toast.success('Company profile updated successfully!')
     } catch (error) {
       toast.error(error.message || 'Failed to update company profile')
     }
@@ -232,29 +197,17 @@ const CompanyProfile = () => {
   const handleSaveWorkingDays = async () => {
     setSavingWorkingDays(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        throw new Error('Authentication token not found')
+      const response = await apiService.put(API_ENDPOINTS.WORKING_DAYS + '/config', workingDaysConfig)
+
+      if (response.status === 200) {
+        const result = response.data
+        toast.success('Working days configuration updated successfully!')
+        setWorkingDaysConfig(result.config)
+        setIsEditingWorkingDays(false)
+      } else {
+        const error = response.data
+        throw new Error(error.error || 'Failed to update working days configuration')
       }
-
-      const response = await fetch(`${API_BASE_URL}/working-days/config`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(workingDaysConfig)
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to update working days configuration')
-      }
-
-      toast.success('Working days configuration updated successfully!')
-      setWorkingDaysConfig(result.config)
-      setIsEditingWorkingDays(false)
     } catch (error) {
       toast.error(error.message || 'Failed to update working days configuration')
     } finally {

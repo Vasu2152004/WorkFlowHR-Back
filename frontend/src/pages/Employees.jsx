@@ -26,10 +26,11 @@ import {
   AlertCircle
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const Employees = () => {
   const navigate = useNavigate()
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [employees, setEmployees] = useState([])
   const [filteredEmployees, setFilteredEmployees] = useState([])
   const [loading, setLoading] = useState(true)
@@ -46,33 +47,19 @@ const Employees = () => {
   const fetchEmployees = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
-
       // Try main endpoint first
       let employees = []
       try {
-        const response = await fetch(`${API_BASE_URL}/users/employees`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
+        const response = await apiService.get(API_ENDPOINTS.USERS + '/employees')
 
-        if (response.ok) {
-          const data = await response.json()
+        if (response.status === 200) {
+          const data = response.data
           employees = data.employees || []
         } else {
           // Fallback to mock data
-          const mockResponse = await fetch(`${API_BASE_URL}/users/mock/employees`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-          if (mockResponse.ok) {
-            const mockData = await mockResponse.json()
+          const mockResponse = await apiService.get(API_ENDPOINTS.USERS + '/mock/employees')
+          if (mockResponse.status === 200) {
+            const mockData = mockResponse.data
             employees = mockData.employees || []
           }
         }
@@ -172,22 +159,16 @@ const Employees = () => {
 
   const handleDeleteEmployee = async (employeeId) => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`${API_BASE_URL}/users/employees/${employeeId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const response = await apiService.delete(API_ENDPOINTS.USERS + `/employees/${employeeId}`)
 
-      if (!response.ok) {
+      if (response.status === 200) {
+        toast.success('Employee deleted successfully!')
+        fetchEmployees() // Refresh the list
+        setShowDeleteModal(false)
+        setEmployeeToDelete(null)
+      } else {
         throw new Error('Failed to delete employee')
       }
-
-      toast.success('Employee deleted successfully!')
-      fetchEmployees() // Refresh the list
-      setShowDeleteModal(false)
-      setEmployeeToDelete(null)
     } catch (error) {
       toast.error('Failed to delete employee')
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Link } from 'react-router-dom'
 import { 
@@ -14,9 +14,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import CalendarWidget from '../components/CalendarWidget'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const Dashboard = () => {
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [dashboardData, setDashboardData] = useState({
     totalEmployees: 0,
@@ -39,21 +40,11 @@ const Dashboard = () => {
   const fetchDashboardData = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
-
       // Fetch dashboard data from centralized endpoint
-      const dashboardResponse = await fetch(`${API_BASE_URL}/users/dashboard`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const dashboardResponse = await apiService.get(API_ENDPOINTS.USERS + '/dashboard')
 
-      if (dashboardResponse.ok) {
-        const dashboardData = await dashboardResponse.json()
+      if (dashboardResponse.status === 200) {
+        const dashboardData = dashboardResponse.data
         
         // Update state with dashboard data
         setDashboardData({
@@ -68,24 +59,15 @@ const Dashboard = () => {
         // Fallback to individual endpoints if dashboard fails
         let employees = []
         try {
-          const employeesResponse = await fetch(`${API_BASE_URL}/users/employees`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-
-          if (employeesResponse.ok) {
-            const employeesData = await employeesResponse.json()
+          const employeesResponse = await apiService.get(API_ENDPOINTS.USERS + '/employees')
+          if (employeesResponse.status === 200) {
+            const employeesData = employeesResponse.data
             employees = employeesData.employees || []
           } else {
             // Fallback to mock data
-            const mockResponse = await fetch(`${API_BASE_URL}/users/mock/employees`, {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
-            })
-            if (mockResponse.ok) {
-              const mockData = await mockResponse.json()
+            const mockResponse = await apiService.get(API_ENDPOINTS.USERS + '/mock/employees')
+            if (mockResponse.status === 200) {
+              const mockData = mockResponse.data
               employees = mockData.employees || []
             }
           }
@@ -120,13 +102,9 @@ const Dashboard = () => {
         // Fetch pending leave requests
         let pendingLeaveRequests = 0
         try {
-          const leaveResponse = await fetch(`${API_BASE_URL}/leaves/requests?status=pending`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-          if (leaveResponse.ok) {
-            const leaveData = await leaveResponse.json()
+          const leaveResponse = await apiService.get(API_ENDPOINTS.LEAVES + '/requests?status=pending')
+          if (leaveResponse.status === 200) {
+            const leaveData = leaveResponse.data
             pendingLeaveRequests = Array.isArray(leaveData) ? leaveData.length : 0
           }
         } catch (error) {
@@ -138,13 +116,9 @@ const Dashboard = () => {
         try {
           const currentMonth = new Date().getMonth() + 1
           const currentYear = new Date().getFullYear()
-          const salaryResponse = await fetch(`${API_BASE_URL}/salary/all`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-          if (salaryResponse.ok) {
-            const salaryData = await salaryResponse.json()
+          const salaryResponse = await apiService.get(API_ENDPOINTS.SALARY + '/all')
+          if (salaryResponse.status === 200) {
+            const salaryData = salaryResponse.data
             const currentMonthSlips = (salaryData.salarySlips || []).filter(slip => 
               slip.month === currentMonth && slip.year === currentYear
             )
@@ -157,24 +131,16 @@ const Dashboard = () => {
         // Fetch company profile
         let companyInfo = null
         try {
-          const companyResponse = await fetch(`${API_BASE_URL}/users/company/profile`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
+          const companyResponse = await apiService.get(API_ENDPOINTS.USERS + '/company/profile')
 
-          if (companyResponse.ok) {
-            const companyData = await companyResponse.json()
+          if (companyResponse.status === 200) {
+            const companyData = companyResponse.data
             companyInfo = companyData.company
           } else {
             // Fallback to mock company data
-            const mockCompanyResponse = await fetch(`${API_BASE_URL}/users/mock/company`, {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
-            })
-            if (mockCompanyResponse.ok) {
-              const mockCompanyData = await mockCompanyResponse.json()
+            const mockCompanyResponse = await apiService.get(API_ENDPOINTS.USERS + '/mock/company')
+            if (mockCompanyResponse.status === 200) {
+              const mockCompanyData = mockCompanyResponse.data
               companyInfo = mockCompanyData.company
             }
           }

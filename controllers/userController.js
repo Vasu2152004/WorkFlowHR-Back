@@ -162,7 +162,7 @@ const addEmployee = async (req, res) => {
       };
 
       // Send email (this will work if email is configured)
-      const emailResponse = await fetch('http://localhost:3000/api/send-email', {
+      const emailResponse = await fetch(`${req.protocol}://${req.get('host')}/api/email/send-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(emailData)

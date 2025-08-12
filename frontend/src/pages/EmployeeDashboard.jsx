@@ -1,30 +1,27 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { 
+  Users, 
   Clock, 
   Calendar, 
-  FileText, 
-  TrendingUp,
+  FileText,
   Building,
-  User,
-  Bell,
-  CheckCircle,
-  AlertCircle,
-  Plus,
-  Search,
-  Eye,
-  Users,
-  Mail,
-  Phone,
-  MapPin,
   DollarSign,
+  Bell,
+  Plus,
+  RefreshCw,
   Download,
-  RefreshCw
+  Eye,
+  Edit,
+  Trash2
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const EmployeeDashboard = () => {
-  const { user, API_BASE_URL } = useAuth()
+  const navigate = useNavigate()
+  const { user } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [employees, setEmployees] = useState([])
   const [filteredEmployees, setFilteredEmployees] = useState([])
@@ -55,23 +52,9 @@ const EmployeeDashboard = () => {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/users/employees`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
-        }
-        throw new Error('Failed to fetch employees')
-      }
-
-      const data = await response.json()
-      setEmployees(data.employees || [])
-      setFilteredEmployees(data.employees || [])
+      const response = await apiService.get(API_ENDPOINTS.EMPLOYEES)
+      setEmployees(response.data.employees || [])
+      setFilteredEmployees(response.data.employees || [])
     } catch (error) {
       toast.error('Failed to fetch employees')
     } finally {
@@ -89,22 +72,8 @@ const EmployeeDashboard = () => {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/salary/my-slips`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
-        }
-        throw new Error('Failed to fetch salary slips')
-      }
-
-      const data = await response.json()
-      setSalarySlips(data.salarySlips || [])
+      const response = await apiService.get(API_ENDPOINTS.SALARY_SLIPS)
+      setSalarySlips(response.data.salarySlips || [])
     } catch (error) {
       toast.error('Failed to fetch salary slips')
     } finally {
@@ -156,21 +125,11 @@ const EmployeeDashboard = () => {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/salary/my-slips/${slipId}/download`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      const response = await apiService.get(API_ENDPOINTS.SALARY_SLIPS + `/${slipId}/download`, {
+        responseType: 'blob'
       })
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
-        }
-        throw new Error('Failed to download salary slip')
-      }
-
-      const blob = await response.blob()
+      const blob = new Blob([response.data], { type: 'application/pdf' })
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -243,7 +202,7 @@ const EmployeeDashboard = () => {
     {
       name: 'Performance',
       value: 'N/A',
-      icon: TrendingUp,
+      icon: FileText, // Changed from TrendingUp to FileText for consistency
       color: 'from-cyan-600 to-cyan-700',
       bgColor: 'bg-cyan-50 dark:bg-gray-700'
     }
@@ -295,7 +254,7 @@ const EmployeeDashboard = () => {
             Today's Tasks
           </h3>
           <div className="text-center py-8">
-            <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <p className="text-black dark:text-gray-400">No tasks assigned</p>
             <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">Tasks will appear here when assigned</p>
           </div>
@@ -442,7 +401,7 @@ const EmployeeDashboard = () => {
         {/* Search and Filter */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <FileText className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
               placeholder="Search employees..."
@@ -556,7 +515,7 @@ const EmployeeDashboard = () => {
               <span>Joined: {user?.created_at ? formatDate(user.created_at) : '[Date]'}</span>
             </div>
             <div className="flex items-center text-black dark:text-gray-400">
-              <TrendingUp className="h-4 w-4 mr-3 text-slate-500 dark:text-gray-500" />
+              <FileText className="h-4 w-4 mr-3 text-slate-500 dark:text-gray-500" />
               <span>Performance Rating: N/A</span>
             </div>
           </div>

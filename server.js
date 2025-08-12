@@ -21,37 +21,12 @@ let emailRoutes = null
 try {
   emailRoutes = require('./routes/email')
 } catch (error) {
-  console.warn('⚠️  Email routes not available - email functionality disabled:', error.message)
-}
-
-// Validate critical routes
-const requiredRoutes = [authRoutes, userRoutes, documentRoutes, leaveRoutes, teamLeadRoutes, hrManagerRoutes, salaryRoutes, workingDaysRoutes, companyCalendarRoutes]
-const missingRoutes = requiredRoutes.filter(route => !route)
-
-if (missingRoutes.length > 0) {
-  console.warn('⚠️  Some required routes are missing:', missingRoutes.length, 'routes failed to load')
+  // Email routes not available - email functionality disabled
 }
 
 const app = express()
 const PORT = process.env.PORT || 3000
 const NODE_ENV = process.env.NODE_ENV || 'development'
-
-// Validate critical environment variables in production
-if (NODE_ENV === 'production') {
-  const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'JWT_SECRET']
-  const missingVars = requiredEnvVars.filter(varName => !process.env[varName])
-  
-  if (missingVars.length > 0) {
-    console.warn('⚠️  Missing required environment variables in production:', missingVars)
-    console.warn('Please set all required environment variables before deploying to production')
-    // Don't exit in serverless environment, just log warning
-    if (process.env.VERCEL !== '1') {
-      process.exit(1)
-    }
-  } else {
-    console.log('✅ All required environment variables are set for production')
-  }
-}
 
 // Security middleware
 app.use(helmet({
@@ -71,7 +46,7 @@ app.use(helmet({
 // CORS configuration
 const corsOptions = {
   origin: NODE_ENV === 'production' 
-    ? '*' // Allow all origins in production for Vercel
+    ? [process.env.CORS_ORIGIN || 'https://your-frontend-domain.com']
     : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -107,12 +82,6 @@ app.use(express.urlencoded({
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now()
-  
-  // Log all incoming requests in production for debugging
-  if (NODE_ENV === 'production') {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.get('Origin') || 'Unknown'}`)
-  }
-  
   res.on('finish', () => {
     const duration = Date.now() - start
     const logMessage = `${new Date().toISOString()} - ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`
@@ -126,49 +95,38 @@ app.use((req, res, next) => {
   next()
 })
 
-// Serve static files from the React app (only in development)
-if (NODE_ENV === 'development') {
-  app.use(express.static(path.join(__dirname, 'frontend/dist'), {
-    maxAge: '0'
-  }))
-}
-
 // Health check endpoint
 app.get('/health', (req, res) => {
-  try {
-    // Check if critical environment variables are available
-    const hasSupabaseUrl = !!process.env.SUPABASE_URL
-    const hasSupabaseKey = !!process.env.SUPABASE_ANON_KEY
-    
-    res.json({ 
-      status: hasSupabaseUrl && hasSupabaseKey ? 'OK' : 'WARNING',
-      timestamp: new Date().toISOString(),
-      environment: NODE_ENV,
-      version: process.env.npm_package_version || '1.0.0',
-      supabase_configured: hasSupabaseUrl && hasSupabaseKey,
-      supabase_url_set: hasSupabaseUrl,
-      supabase_key_set: hasSupabaseKey,
-      routes: ['/health', '/api/*'],
-      vercel: process.env.VERCEL === '1'
-    })
-  } catch (error) {
-    res.status(500).json({
-      status: 'ERROR',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    })
-  }
-})
-
-// Route testing endpoint
-app.get('/test', (req, res) => {
-  res.json({
-    message: 'Route testing successful',
+  res.json({ 
+    status: 'OK', 
     timestamp: new Date().toISOString(),
     environment: NODE_ENV,
-    path: req.path,
-    method: req.method,
-    headers: req.headers
+    version: process.env.npm_package_version || '1.0.0'
+  })
+})
+
+// API status endpoint for frontend debugging
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'API is working',
+    timestamp: new Date().toISOString(),
+    environment: NODE_ENV,
+    endpoints: [
+      '/health',
+      '/api/auth/*',
+      '/api/users/*',
+      '/api/documents/*',
+      '/api/leaves/*',
+      '/api/team-lead/*',
+      '/api/hr-manager/*',
+      '/api/salary/*',
+      '/api/working-days/*',
+      '/api/company-calendar/*'
+    ],
+    cors: {
+      origin: corsOptions.origin,
+      credentials: corsOptions.credentials
+    }
   })
 })
 
@@ -186,27 +144,6 @@ app.use('/api/company-calendar', companyCalendarRoutes)
 // Email routes (if available)
 if (emailRoutes) {
   app.use('/api/email', emailRoutes)
-}
-
-// Catch all handler: send back React's index.html file for any non-API routes (only in development)
-if (NODE_ENV === 'development') {
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'frontend/dist/index.html'))
-  })
-} else {
-  // In production, handle all routes that don't match API routes
-  app.get('*', (req, res) => {
-    // If it's not an API route, return a simple response
-    if (!req.path.startsWith('/api/') && req.path !== '/health') {
-      res.status(404).json({ 
-        error: 'Route not found',
-        message: 'This is a backend API server. Frontend routes are not available.',
-        availableRoutes: ['/health', '/api/*']
-      })
-    } else {
-      res.status(404).json({ error: 'Route not found' })
-    }
-  })
 }
 
 // Global error handler
@@ -254,7 +191,7 @@ app.use((req, res) => {
 module.exports = app
 
 // Only start server if not in Vercel environment
-if (NODE_ENV !== 'production' || process.env.VERCEL !== '1') {
+if (process.env.NODE_ENV !== 'production' || process.env.VERCEL !== '1') {
   app.listen(PORT, () => {
     console.log(`🚀 WorkFlowHR server running on port ${PORT} in ${NODE_ENV} mode`)
     console.log(`📊 Health check available at: http://localhost:${PORT}/health`)
