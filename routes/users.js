@@ -30,8 +30,28 @@ const validateUpdateEmployee = [
 
 const validateUpdateCompanyProfile = [
   body('name').trim().isLength({ min: 2 }),
-  body('email').optional().isEmail().normalizeEmail(),
-  body('website').optional().isURL()
+  body('email').optional().custom((value) => {
+    if (value && value.trim() !== '') {
+      // Only validate if email is provided and not empty
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        throw new Error('Invalid email format');
+      }
+    }
+    return true;
+  }).normalizeEmail(),
+  body('website').optional().custom((value) => {
+    if (value && value.trim() !== '') {
+      // Only validate if website is provided and not empty
+      try {
+        new URL(value);
+      } catch {
+        throw new Error('Invalid website URL');
+      }
+    }
+    return true;
+  }),
+  body('phone').optional().trim(),
+  body('address').optional().trim()
 ];
 
 // Apply authentication to all routes

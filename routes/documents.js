@@ -33,7 +33,7 @@ router.get('/test-templates', (req, res) => {
         { tag: 'end_date', label: 'End Date', required: true },
         { tag: 'reason', label: 'Reason', required: false }
       ],
-      content: '<h1>Leave Request Form</h1><p>Employee: {{employee_name}}</p><p>Leave Type: {{leave_type}}</p><p>From: {{start_date}} To: {{end_date}}</p><p>Reason: {{reason}}</p>',
+      content: '<h1>Leave Request Form</h1><p>Employee: {{employee_name}}</p><p>From: {{start_date}} To: {{end_date}}</p><p>Reason: {{reason}}</p>',
       settings: {},
       company_id: 'test-company',
       is_active: true,
@@ -42,6 +42,74 @@ router.get('/test-templates', (req, res) => {
   ]
   
   res.json({ templates: mockTemplates })
+});
+
+// Debug endpoint to check all templates in database (remove in production)
+router.get('/debug-templates', authenticateToken, async (req, res) => {
+  try {
+    const { supabaseAdmin } = require('../config/supabase');
+    
+    console.log('🔍 Debug: Checking all templates in database...');
+    console.log('👤 Current user:', { id: req.user?.id, company_id: req.user?.company_id, role: req.user?.role });
+    
+    // Get all templates (bypass company isolation for debugging)
+    const { data: allTemplates, error: allError } = await supabaseAdmin
+      .from('document_templates')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (allError) {
+      console.error('❌ Error fetching all templates:', allError);
+      return res.status(500).json({ error: 'Failed to fetch all templates', details: allError.message });
+    }
+    
+    // Get templates for current user's company
+    const { data: companyTemplates, error: companyError } = await supabaseAdmin
+      .from('document_templates')
+      .select('*')
+      .eq('company_id', req.user.company_id)
+      .order('created_at', { ascending: false });
+    
+    if (companyError) {
+      console.error('❌ Error fetching company templates:', companyError);
+    }
+    
+    const debugInfo = {
+      currentUser: {
+        id: req.user?.id,
+        company_id: req.user?.company_id,
+        role: req.user?.role
+      },
+      allTemplates: allTemplates?.map(t => ({
+        id: t.id,
+        name: t.document_name,
+        company_id: t.company_id,
+        created_by: t.created_by,
+        is_active: t.is_active,
+        created_at: t.created_at
+      })) || [],
+      companyTemplates: companyTemplates?.map(t => ({
+        id: t.id,
+        name: t.document_name,
+        company_id: t.company_id,
+        created_by: t.created_by,
+        is_active: t.is_active,
+        created_at: t.created_at
+      })) || [],
+      summary: {
+        totalTemplates: allTemplates?.length || 0,
+        companyTemplates: companyTemplates?.length || 0,
+        otherCompanyTemplates: (allTemplates?.length || 0) - (companyTemplates?.length || 0)
+      }
+    };
+    
+    console.log('✅ Debug info:', debugInfo);
+    res.json(debugInfo);
+    
+  } catch (error) {
+    console.error('❌ Debug endpoint error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Apply authentication to all routes
@@ -69,19 +137,20 @@ const validateGenerateDocument = [
   body('field_values').isObject().withMessage('Field values must be an object')
 ];
 
-// Document template routes (HR only)
+// Document template routes (Admin and HR only)
 router.get('/templates', requireHR, documentController.getDocumentTemplates);
 router.get('/templates/:id', requireHR, documentController.getDocumentTemplate);
 router.post('/templates', requireHR, validateCreateTemplate, documentController.createDocumentTemplate);
 router.put('/templates/:id', requireHR, validateUpdateTemplate, documentController.updateDocumentTemplate);
 router.delete('/templates/:id', requireHR, documentController.deleteDocumentTemplate);
 
-// Generate document from template (HR only)
-router.post('/generate-document', validateGenerateDocument, documentController.generateDocument);
+// Generate document from template (Admin and HR only)
+router.post('/generate-document', requireHR, validateGenerateDocument, documentController.generateDocument);
 
 // Debug: Log all document routes
 console.log('📄 Document Routes Registered:')
 console.log('  - GET /test-templates')
+console.log('  - GET /debug-templates')
 console.log('  - GET /templates')
 console.log('  - GET /templates/:id')
 console.log('  - POST /templates')

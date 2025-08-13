@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
-import { Building, Eye, EyeOff } from 'lucide-react'
+import { Building, Eye, EyeOff, TestTube } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const Signup = () => {
   const [formData, setFormData] = useState({
@@ -29,11 +30,33 @@ const Signup = () => {
     setLoading(true)
 
     try {
-      await signup(formData.full_name, formData.email, formData.password, formData.company_name)
-      toast.success('Account created successfully!')
-      navigate('/dashboard')
+      console.log('🔍 Starting signup process...')
+      console.log('🔍 Form data:', formData)
+      console.log('🔍 API endpoint:', API_ENDPOINTS.SIGNUP)
+      
+      const result = await signup(formData.full_name, formData.email, formData.password, formData.company_name)
+      console.log('✅ Signup result:', result)
+      console.log('🔍 Result type:', typeof result)
+      console.log('🔍 Result keys:', result ? Object.keys(result) : 'No result')
+      
+      if (result && result.user) {
+        // Signup successful, redirect to login
+        toast.success(`Account created successfully! Welcome to ${result.company?.name || 'your company'}. Please login to continue.`)
+        navigate('/login')
+      } else {
+        toast.error('Signup failed - unexpected response format')
+      }
     } catch (error) {
-      toast.error(error.message || 'Signup failed')
+      console.error('❌ Signup error:', error)
+      
+      // Handle specific error messages from the backend
+      if (error.response?.data?.error) {
+        toast.error(error.response.data.error)
+      } else if (error.message) {
+        toast.error(error.message)
+      } else {
+        toast.error('Signup failed - please try again')
+      }
     } finally {
       setLoading(false)
     }
@@ -46,6 +69,25 @@ const Signup = () => {
     })
   }
 
+  const testApiConnection = async () => {
+    try {
+      console.log('🧪 Testing API connection...')
+      
+      // Test basic connection
+      const connectionTest = await apiService.get('/auth/test-connection')
+      console.log('✅ Connection test:', connectionTest.data)
+      
+      // Test schema
+      const schemaTest = await apiService.get('/auth/test-schema')
+      console.log('✅ Schema test:', schemaTest.data)
+      
+      toast.success('API connection test successful!')
+    } catch (error) {
+      console.error('❌ API test failed:', error)
+      toast.error('API test failed: ' + (error.response?.data?.error || error.message))
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -55,10 +97,10 @@ const Signup = () => {
             <Building className="h-8 w-8 text-white" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-2">
-            Create Account
+            Create Company & Admin Account
           </h2>
           <p className="text-gray-600 dark:text-gray-400 text-center mb-8">
-            Join our WorkFlowHR platform
+            Create a new company and your first admin account
           </p>
         </div>
 
@@ -177,10 +219,25 @@ const Signup = () => {
                 'Create Account'
               )}
             </button>
+
+            {/* Test API Connection Button */}
+            <button
+              type="button"
+              onClick={testApiConnection}
+              className="btn-secondary w-full flex items-center justify-center"
+            >
+              <TestTube className="h-4 w-4 mr-2" />
+              Test API Connection
+            </button>
+
+            {/* Company Isolation Note */}
+            <div className="text-center text-sm text-gray-500 dark:text-gray-400 mt-4">
+              <p>Each company is completely isolated. You can create a new company even if others exist.</p>
+            </div>
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-slate-600 dark:text-gray-400">
+            <p className="text-slate-600 dark:text-gray-400 mb-2">
               Already have an account?{' '}
               <Link 
                 to="/login" 
@@ -188,6 +245,9 @@ const Signup = () => {
               >
                 Sign in
               </Link>
+            </p>
+            <p className="text-xs text-slate-500 dark:text-gray-500">
+              Note: Only company administrators can create accounts. Regular employees will be added by HR.
             </p>
           </div>
         </div>

@@ -7,8 +7,13 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
 // Check if environment variables are set
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('⚠️  Supabase environment variables not found. Supabase functionality will be disabled.');
-  console.warn('Please set SUPABASE_URL and SUPABASE_ANON_KEY in your environment variables.');
+  console.error('❌ Supabase environment variables not found. Supabase functionality will be disabled.');
+  console.error('Please set SUPABASE_URL and SUPABASE_ANON_KEY in your environment variables.');
+  console.error('Current values:', { 
+    SUPABASE_URL: process.env.SUPABASE_URL || 'NOT_SET',
+    SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'SET' : 'NOT_SET',
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT_SET'
+  });
   
   // Export dummy clients that won't crash the app
   module.exports = {

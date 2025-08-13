@@ -75,10 +75,10 @@ export const API_ENDPOINTS = {
   // Leave endpoints
   LEAVES: '/leaves',
   LEAVE_BY_ID: (id) => `/leaves/${id}`,
-  LEAVE_REQUESTS: '/requests',
-  LEAVE_TYPES: '/types',
-  LEAVE_BALANCE: '/balance',
-  EMPLOYEE_LEAVE_REQUESTS: '/employee-requests',
+  LEAVE_REQUESTS: '/leaves/requests',
+  LEAVE_TYPES: '/leaves/types',
+  LEAVE_BALANCE: '/leaves/balance',
+  EMPLOYEE_LEAVE_REQUESTS: '/leaves/employee-requests',
   
   // Salary endpoints
   SALARY: '/salary',

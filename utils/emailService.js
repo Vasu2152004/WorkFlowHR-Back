@@ -297,7 +297,7 @@ const emailService = {
     }
   },
 
-  // Send email notification for salary slip generation with PDF attachment
+  // Send email notification for salary slip generation (no PDF attachment)
   async sendSalarySlipNotification(salarySlip, employee, details = []) {
     if (!transporter) {
       console.log('⚠️ Email service not configured - skipping salary slip notification')
@@ -314,37 +314,15 @@ const emailService = {
         salarySlip.total_deductions
       )
 
-      // Generate PDF attachment
-      let attachments = []
-      try {
-        const pdfBuffer = await generateSalarySlipPDF(salarySlip, employee, details)
-        const monthNames = [
-          'January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December'
-        ]
-        const monthName = monthNames[salarySlip.month - 1]
-        const year = salarySlip.year
-        
-        attachments.push({
-          filename: `salary_slip_${employee.full_name.replace(/\s+/g, '_')}_${monthName}_${year}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf'
-        })
-      } catch (pdfError) {
-        console.error('❌ Failed to generate PDF attachment:', pdfError)
-        // Continue without PDF attachment if generation fails
-      }
-
       const mailOptions = {
         from: process.env.EMAIL_USER || 'your-email@gmail.com',
         to: employee.email,
         subject: `Salary Slip Generated - ${new Date(salarySlip.year, salarySlip.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`,
-        html: html,
-        attachments: attachments
+        html: html
       }
 
       const info = await transporter.sendMail(mailOptions)
-      console.log('✅ Salary slip notification sent with PDF attachment:', info.messageId)
+      console.log('✅ Salary slip notification sent successfully:', info.messageId)
       return true
     } catch (error) {
       console.error('❌ Failed to send salary slip notification:', error)

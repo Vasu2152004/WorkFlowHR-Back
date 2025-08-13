@@ -2,44 +2,35 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { 
   Building,
-  Globe,
   Phone,
   Mail,
   MapPin,
-  Calendar,
-  Users,
   Edit,
   Save,
   X,
-  Eye,
-  Target,
-  Lightbulb,
-  Heart,
   ExternalLink,
   Plus,
   Clock,
-  Info
+  Info,
+  RefreshCw
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { apiService, API_ENDPOINTS } from '../config/api'
 
 const CompanyProfile = () => {
+  console.log('🔍 CompanyProfile component rendering...')
+  
   const { user } = useAuth()
   const [company, setCompany] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState({
     name: '',
-    description: '',
-    industry: '',
-    founded_year: '',
     website: '',
     phone: '',
     address: '',
-    email: '',
-    mission: '',
-    vision: '',
-    values: ''
+    email: ''
   })
   
   // Working days configuration state
@@ -59,31 +50,30 @@ const CompanyProfile = () => {
 
   // Fetch company profile
   const fetchCompanyProfile = async () => {
+    console.log('🔍 Fetching company profile...')
     setLoading(true)
     try {
       const response = await apiService.get(API_ENDPOINTS.USERS + '/company/profile')
+      console.log('✅ Company profile response:', response)
 
       if (response.status === 200) {
         const data = response.data
+        console.log('✅ Company profile data:', data)
         setCompany(data.company)
         setEditForm({
           name: data.company.name || '',
-          description: data.company.description || '',
-          industry: data.company.industry || '',
-          founded_year: data.company.founded_year || '',
           website: data.company.website || '',
           phone: data.company.phone || '',
           address: data.company.address || '',
-          email: data.company.email || '',
-          mission: data.company.mission || '',
-          vision: data.company.vision || '',
-          values: data.company.values || ''
+          email: data.company.email || ''
         })
       } else {
         throw new Error('Failed to fetch company profile')
       }
     } catch (error) {
-      toast.error('Failed to fetch company profile')
+      console.error('❌ Error fetching company profile:', error)
+      setError(error.message)
+      toast.error('Failed to fetch company profile: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -92,24 +82,29 @@ const CompanyProfile = () => {
   // Fetch working days configuration
   const fetchWorkingDaysConfig = async () => {
     try {
+      console.log('🔍 Fetching working days configuration...')
       const response = await apiService.get(API_ENDPOINTS.WORKING_DAYS + '/config')
 
       if (response.status === 200) {
         const data = response.data
+        console.log('✅ Working days config data:', data)
         setWorkingDaysConfig(data.config)
       } else {
         const error = response.data
+        console.log('⚠️ Working days config response:', response.status, error)
         // Don't show error toast for default config, just log it
         if (response.status !== 404) {
           toast.error(error.error || 'Failed to fetch working days configuration')
         }
       }
     } catch (error) {
+      console.error('❌ Error fetching working days config:', error)
       // Don't show error toast for network issues, just log it
     }
   }
 
   useEffect(() => {
+    console.log('🔍 CompanyProfile component mounted')
     fetchCompanyProfile()
     fetchWorkingDaysConfig()
   }, [])
@@ -123,16 +118,10 @@ const CompanyProfile = () => {
     // Reset form to original values
     setEditForm({
       name: company.name || '',
-      description: company.description || '',
-      industry: company.industry || '',
-      founded_year: company.founded_year || '',
       website: company.website || '',
       phone: company.phone || '',
       address: company.address || '',
-      email: company.email || '',
-      mission: company.mission || '',
-      vision: company.vision || '',
-      values: company.values || ''
+      email: company.email || ''
     })
   }
 
@@ -215,7 +204,10 @@ const CompanyProfile = () => {
     }
   }
 
+  console.log('🔍 CompanyProfile render state:', { loading, error, company, user })
+
   if (loading) {
+    console.log('🔍 Rendering loading state')
     return (
       <div className="flex items-center justify-center h-64">
         <div className="loading-spinner h-12 w-12"></div>
@@ -223,7 +215,33 @@ const CompanyProfile = () => {
     )
   }
 
+  if (error) {
+    console.log('🔍 Rendering error state')
+    return (
+      <div className="text-center py-12">
+        <Building className="h-16 w-16 text-red-400 mx-auto mb-4" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+          Error Loading Company Profile
+        </h3>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">
+          {error}
+        </p>
+        <button
+          onClick={() => {
+            setError(null)
+            fetchCompanyProfile()
+          }}
+          className="btn-primary flex items-center mx-auto"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Try Again
+        </button>
+      </div>
+    )
+  }
+
   if (!company) {
+    console.log('🔍 Rendering no company state')
     return (
       <div className="text-center py-12">
         <Building className="h-16 w-16 text-gray-400 mx-auto mb-4" />
@@ -241,29 +259,17 @@ const CompanyProfile = () => {
             onClick={() => {
               setCompany({
                 name: '',
-                description: '',
-                industry: '',
-                founded_year: '',
                 website: '',
                 phone: '',
                 address: '',
-                email: '',
-                mission: '',
-                vision: '',
-                values: ''
+                email: ''
               })
               setEditForm({
                 name: '',
-                description: '',
-                industry: '',
-                founded_year: '',
                 website: '',
                 phone: '',
                 address: '',
-                email: '',
-                mission: '',
-                vision: '',
-                values: ''
+                email: ''
               })
               setIsEditing(true)
             }}
@@ -277,6 +283,7 @@ const CompanyProfile = () => {
     )
   }
 
+  console.log('🔍 Rendering main company profile UI')
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -320,275 +327,119 @@ const CompanyProfile = () => {
       </div>
 
       {/* Company Information */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Basic Information */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <Building className="h-5 w-5 mr-2" />
-            Basic Information
-          </h3>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Company Name</label>
-              {isEditing ? (
-                <input
-                  type="text"
-                  name="name"
-                  value={editForm.name}
-                  onChange={handleInputChange}
-                  className="input-field mt-1"
-                  placeholder="Enter company name"
-                />
-              ) : (
-                <p className="text-gray-900 dark:text-white font-medium">{company.name}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</label>
-              {isEditing ? (
-                <textarea
-                  name="description"
-                  value={editForm.description}
-                  onChange={handleInputChange}
-                  rows="3"
-                  className="input-field mt-1"
-                  placeholder="Enter company description"
-                />
-              ) : (
-                <p className="text-gray-700 dark:text-gray-300">
-                  {company.description || 'No description available'}
-                </p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Industry</label>
-                {isEditing ? (
-                  <input
-                    type="text"
-                    name="industry"
-                    value={editForm.industry}
-                    onChange={handleInputChange}
-                    className="input-field mt-1"
-                    placeholder="Enter industry"
-                  />
-                ) : (
-                  <p className="text-gray-700 dark:text-gray-300">
-                    {company.industry || 'Not specified'}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Founded Year</label>
-                {isEditing ? (
-                  <input
-                    type="number"
-                    name="founded_year"
-                    value={editForm.founded_year}
-                    onChange={handleInputChange}
-                    className="input-field mt-1"
-                    placeholder="Enter founded year"
-                  />
-                ) : (
-                  <p className="text-gray-700 dark:text-gray-300">
-                    {company.founded_year || 'Not specified'}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Contact Information */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <Mail className="h-5 w-5 mr-2" />
-            Contact Information
-          </h3>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Email</label>
-              {isEditing ? (
-                <input
-                  type="email"
-                  name="email"
-                  value={editForm.email}
-                  onChange={handleInputChange}
-                  className="input-field mt-1"
-                  placeholder="Enter company email"
-                />
-              ) : (
-                <p className="text-gray-700 dark:text-gray-300">
-                  {company.email || 'Not specified'}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Phone</label>
-              {isEditing ? (
-                <input
-                  type="tel"
-                  name="phone"
-                  value={editForm.phone}
-                  onChange={handleInputChange}
-                  className="input-field mt-1"
-                  placeholder="Enter company phone"
-                />
-              ) : (
-                <p className="text-gray-700 dark:text-gray-300">
-                  {company.phone || 'Not specified'}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Website</label>
-              {isEditing ? (
-                <input
-                  type="url"
-                  name="website"
-                  value={editForm.website}
-                  onChange={handleInputChange}
-                  className="input-field mt-1"
-                  placeholder="Enter website URL"
-                />
-              ) : (
-                <p className="text-gray-700 dark:text-gray-300">
-                  {company.website ? (
-                    <a 
-                      href={company.website} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center"
-                    >
-                      {company.website}
-                      <ExternalLink className="h-3 w-3 ml-1" />
-                    </a>
-                  ) : (
-                    'Not specified'
-                  )}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Address</label>
-              {isEditing ? (
-                <textarea
-                  name="address"
-                  value={editForm.address}
-                  onChange={handleInputChange}
-                  rows="3"
-                  className="input-field mt-1"
-                  placeholder="Enter company address"
-                />
-              ) : (
-                <p className="text-gray-700 dark:text-gray-300">
-                  {company.address || 'Not specified'}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Company Values */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Mission */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <Target className="h-5 w-5 mr-2" />
-            Mission
-          </h3>
-          {isEditing ? (
-            <textarea
-              name="mission"
-              value={editForm.mission}
-              onChange={handleInputChange}
-              rows="4"
-              className="input-field"
-              placeholder="Enter company mission"
-            />
-          ) : (
-            <p className="text-gray-700 dark:text-gray-300">
-              {company.mission || 'No mission statement available'}
-            </p>
-          )}
-        </div>
-
-        {/* Vision */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <Eye className="h-5 w-5 mr-2" />
-            Vision
-          </h3>
-          {isEditing ? (
-            <textarea
-              name="vision"
-              value={editForm.vision}
-              onChange={handleInputChange}
-              rows="4"
-              className="input-field"
-              placeholder="Enter company vision"
-            />
-          ) : (
-            <p className="text-gray-700 dark:text-gray-300">
-              {company.vision || 'No vision statement available'}
-            </p>
-          )}
-        </div>
-
-        {/* Values */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <Heart className="h-5 w-5 mr-2" />
-            Values
-          </h3>
-          {isEditing ? (
-            <textarea
-              name="values"
-              value={editForm.values}
-              onChange={handleInputChange}
-              rows="4"
-              className="input-field"
-              placeholder="Enter company values"
-            />
-          ) : (
-            <p className="text-gray-700 dark:text-gray-300">
-              {company.values || 'No values statement available'}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Company Statistics */}
       <div className="card p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-          <Users className="h-5 w-5 mr-2" />
-          Company Statistics
+          <Building className="h-5 w-5 mr-2" />
+          Company Information
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-              {company.founded_year ? new Date().getFullYear() - company.founded_year : 'N/A'}
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Years in Business</p>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Company Name</label>
+            {isEditing ? (
+              <input
+                type="text"
+                name="name"
+                value={editForm.name}
+                onChange={handleInputChange}
+                className="input-field mt-1"
+                placeholder="Enter company name"
+              />
+            ) : (
+              <p className="text-gray-900 dark:text-white font-medium">{company.name}</p>
+            )}
           </div>
-          <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-              {company.industry || 'N/A'}
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Industry</p>
+        </div>
+      </div>
+
+      {/* Contact Information */}
+      <div className="card p-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+          <Mail className="h-5 w-5 mr-2" />
+          Contact Information
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Email</label>
+            {isEditing ? (
+              <input
+                type="email"
+                name="email"
+                value={editForm.email}
+                onChange={handleInputChange}
+                className="input-field mt-1"
+                placeholder="Enter company email"
+              />
+            ) : (
+              <p className="text-gray-700 dark:text-gray-300">
+                {company.email || 'Not specified'}
+              </p>
+            )}
           </div>
-          <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-              {company.updated_at ? new Date(company.updated_at).toLocaleDateString() : 'N/A'}
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Last Updated</p>
+
+          <div>
+            <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Phone</label>
+            {isEditing ? (
+              <input
+                type="tel"
+                name="phone"
+                value={editForm.phone}
+                onChange={handleInputChange}
+                className="input-field mt-1"
+                placeholder="Enter company phone"
+              />
+            ) : (
+              <p className="text-gray-700 dark:text-gray-300">
+                {company.phone || 'Not specified'}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Website</label>
+            {isEditing ? (
+              <input
+                type="url"
+                name="website"
+                value={editForm.website}
+                onChange={handleInputChange}
+                className="input-field mt-1"
+                placeholder="Enter website URL"
+              />
+            ) : (
+              <p className="text-gray-700 dark:text-gray-300">
+                {company.website ? (
+                  <a 
+                    href={company.website} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center"
+                  >
+                    {company.website}
+                    <ExternalLink className="h-3 w-3 ml-1" />
+                  </a>
+                ) : (
+                  'Not specified'
+                )}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Address</label>
+            {isEditing ? (
+              <textarea
+                name="address"
+                value={editForm.address}
+                onChange={handleInputChange}
+                rows="3"
+                className="input-field mt-1"
+                placeholder="Enter company address"
+              />
+            ) : (
+              <p className="text-gray-700 dark:text-gray-300">
+                {company.address || 'Not specified'}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -626,8 +477,17 @@ const CompanyProfile = () => {
                   disabled={savingWorkingDays}
                   className="btn-primary flex items-center"
                 >
-                  <Save className="h-4 w-4 mr-2" />
-                  {savingWorkingDays ? 'Saving...' : 'Save Changes'}
+                  {savingWorkingDays ? (
+                    <>
+                      <div className="loading-spinner h-4 w-4 mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Configuration
+                    </>
+                  )}
                 </button>
               </div>
             )}

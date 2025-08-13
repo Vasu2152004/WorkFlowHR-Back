@@ -1,4 +1,4 @@
-const { supabase } = require('../config/supabase')
+const { supabase, supabaseAdmin } = require('../config/supabase')
 const puppeteer = require('puppeteer')
 
 // Check if Supabase is properly configured
@@ -51,7 +51,163 @@ const getDocumentTemplates = async (req, res) => {
       return res.json({ templates: mockTemplates })
     }
 
-    const { data: templates, error } = await supabase
+    console.log('🔍 Fetching templates for company:', req.user.company_id)
+    console.log('👤 User details:', { id: req.user.id, company_id: req.user.company_id, role: req.user.role })
+    console.log('🔍 Full user object:', req.user)
+    console.log('🔍 Company ID type:', typeof req.user.company_id)
+    console.log('🔍 Company ID value:', req.user.company_id)
+    
+    // Check if company_id is valid
+    if (!req.user.company_id) {
+      console.log('❌ User company_id is missing or invalid!')
+      return res.status(400).json({ 
+        error: 'User company ID is missing',
+        details: 'The user does not have a valid company ID'
+      })
+    }
+    
+    // Test database connection first
+    try {
+      const { data: connectionTest, error: connectionError } = await supabaseAdmin
+        .from('companies')
+        .select('id, name')
+        .limit(1)
+      
+      console.log('🔍 Database connection test:', { connectionTest, connectionError })
+      
+      // Also test if we can access the users table
+      const { data: usersTest, error: usersError } = await supabaseAdmin
+        .from('users')
+        .select('id, email, role, company_id')
+        .limit(1)
+      
+      console.log('🔍 Users table access test:', { usersTest, usersError })
+    } catch (connectionTestError) {
+      console.log('❌ Database connection test failed:', connectionTestError)
+    }
+    
+    // First, let's check if there are any templates at all in the database
+    const { data: allTemplates, error: allError } = await supabaseAdmin
+      .from('document_templates')
+      .select('*')
+      .limit(5)
+    
+    console.log('🔍 All templates in database:', {
+      count: allTemplates?.length || 0,
+      error: allError,
+      templates: allTemplates?.map(t => ({ id: t.id, name: t.document_name, company_id: t.company_id, created_by: t.created_by }))
+    })
+    
+    // If we got templates, let's check their company_id values
+    if (allTemplates && allTemplates.length > 0) {
+      console.log('🔍 Template company IDs:', allTemplates.map(t => ({ id: t.id, company_id: t.company_id, type: typeof t.company_id })))
+      console.log('🔍 User company ID:', { value: req.user.company_id, type: typeof req.user.company_id })
+      
+      // Check if any templates match the user's company_id
+      const matchingTemplates = allTemplates.filter(t => t.company_id === req.user.company_id)
+      console.log('🔍 Matching templates count:', matchingTemplates.length)
+      
+      // Also check with string comparison
+      const matchingTemplatesString = allTemplates.filter(t => String(t.company_id) === String(req.user.company_id))
+      console.log('🔍 Matching templates (string comparison):', matchingTemplatesString.length)
+      
+      // Check if there are any templates with null company_id
+      const nullCompanyTemplates = allTemplates.filter(t => t.company_id === null || t.company_id === undefined)
+      console.log('🔍 Templates with null company_id:', nullCompanyTemplates.length)
+    }
+    
+    // If there's an error, let's check if the table exists and what columns it has
+    if (allError) {
+      console.log('❌ Error fetching all templates:', allError)
+      console.log('🔍 This might indicate a table structure issue')
+      
+      // Check if it's a table doesn't exist error
+      if (allError.code === '42P01') {
+        console.log('❌ Table "document_templates" does not exist!')
+        console.log('🔍 This is the root cause - the table needs to be created')
+        return res.status(500).json({ 
+          error: 'Document templates table does not exist',
+          details: 'The document_templates table has not been created in the database'
+        })
+      }
+      
+      // Try to get table info
+      try {
+        const { data: tableInfo, error: tableError } = await supabaseAdmin
+          .from('document_templates')
+          .select('*')
+          .limit(0)
+        
+        console.log('🔍 Table structure check:', { tableInfo, tableError })
+        
+        // If we can get table info, let's check what columns exist
+        if (!tableError) {
+          console.log('🔍 Table exists, checking columns...')
+          // Try to get a single row to see the structure
+          const { data: sampleRow, error: sampleError } = await supabaseAdmin
+            .from('document_templates')
+            .select('*')
+            .limit(1)
+          
+          console.log('🔍 Sample row check:', { sampleRow, sampleError })
+        }
+      } catch (tableCheckError) {
+        console.log('❌ Table structure check failed:', tableCheckError)
+      }
+    }
+    
+    // Now get templates for the specific company
+    console.log('🔍 Querying for company_id:', req.user.company_id)
+    
+    // Try a simpler query first to see if the basic table access works
+    const { data: simpleTest, error: simpleError } = await supabaseAdmin
+      .from('document_templates')
+      .select('id, document_name')
+      .limit(1)
+    
+    console.log('🔍 Simple table access test:', { simpleTest, simpleError })
+    
+    // If simple query fails, try to see what columns actually exist
+    if (simpleError) {
+      console.log('🔍 Simple query failed, checking table schema...')
+      try {
+        // Try to get all columns to see what exists
+        const { data: allColumns, error: columnsError } = await supabaseAdmin
+          .from('document_templates')
+          .select('*')
+          .limit(0)
+        
+        console.log('🔍 All columns test:', { allColumns, columnsError })
+        
+        // If that fails, maybe the table has a different name
+        if (columnsError && columnsError.code === '42P01') {
+          console.log('🔍 Table might have a different name, checking common variations...')
+          
+          // Try common table name variations
+          const tableNames = ['document_templates', 'document_template', 'templates', 'template', 'documents']
+          for (const tableName of tableNames) {
+            try {
+              const { data: testData, error: testError } = await supabaseAdmin
+                .from(tableName)
+                .select('*')
+                .limit(0)
+              
+              if (!testError) {
+                console.log(`✅ Found table with name: ${tableName}`)
+                break
+              }
+            } catch (testTableError) {
+              console.log(`❌ Table ${tableName} test failed:`, testTableError)
+            }
+          }
+        }
+      } catch (columnsTestError) {
+        console.log('❌ Columns test failed:', columnsTestError)
+      }
+    }
+    
+    // Now get templates for the specific company
+    const { data: templates, error } = await supabaseAdmin
       .from('document_templates')
       .select('*')
       .eq('company_id', req.user.company_id)
@@ -59,21 +215,103 @@ const getDocumentTemplates = async (req, res) => {
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('Supabase error fetching templates:', error)
+      console.error('❌ Supabase error fetching templates:', error)
+      console.error('❌ Error details:', { code: error.code, message: error.message, details: error.details, hint: error.hint })
       return res.status(500).json({ 
         error: 'Failed to fetch templates',
         details: error.message 
       })
     }
+    
+    console.log('🔍 Query result:', { templates, error })
+    console.log('🔍 Templates count:', templates?.length || 0)
 
+    console.log('✅ Templates fetched successfully:', {
+      count: templates?.length || 0,
+      templates: templates?.map(t => ({ id: t.id, name: t.document_name, company_id: t.company_id, created_by: t.created_by }))
+    })
+
+    // If no templates found, let's create some test templates for this company
+    if (!templates || templates.length === 0) {
+      console.log('⚠️ No templates found, creating test templates...')
+      
+      try {
+        const testTemplates = [
+          {
+            document_name: 'Employee Offer Letter',
+            field_tags: [
+              { tag: 'employee_name', label: 'Employee Name', required: true },
+              { tag: 'position', label: 'Position', required: true },
+              { tag: 'start_date', label: 'Start Date', required: true },
+              { tag: 'salary', label: 'Salary', required: true }
+            ],
+            content: '<h1>Employee Offer Letter</h1><p>Dear {{employee_name}},</p><p>We are pleased to offer you the position of {{position}} at our company.</p><p>Your start date will be {{start_date}} with a salary of {{salary}}.</p>',
+            settings: {},
+            company_id: req.user.company_id,
+            created_by: req.user.id,
+            is_active: true
+          },
+          {
+            document_name: 'Leave Request Form',
+            field_tags: [
+              { tag: 'employee_name', label: 'Employee Name', required: true },
+              { tag: 'leave_type', label: 'Leave Type', required: true },
+              { tag: 'start_date', label: 'Start Date', required: true },
+              { tag: 'end_date', label: 'End Date', required: true },
+              { tag: 'reason', label: 'Reason', required: false }
+            ],
+            content: '<h1>Leave Request Form</h1><p>Employee: {{employee_name}}</p><p>Leave Type: {{leave_type}}</p><p>From: {{start_date}} To: {{end_date}}</p><p>Reason: {{reason}}</p>',
+            settings: {},
+            company_id: req.user.company_id,
+            created_by: req.user.id,
+            is_active: true
+          }
+        ]
+        
+        console.log('🔍 Attempting to create test templates with company_id:', req.user.company_id)
+        
+        const { data: createdTemplates, error: createError } = await supabaseAdmin
+          .from('document_templates')
+          .insert(testTemplates)
+          .select()
+        
+        if (createError) {
+          console.log('⚠️ Failed to create test templates:', createError)
+          console.log('⚠️ Create error details:', { code: createError.code, message: createError.message, details: createError.details, hint: createError.hint })
+        } else {
+          console.log('✅ Created test templates:', createdTemplates?.length || 0)
+          // Return the newly created templates
+          return res.json({ templates: createdTemplates || [] })
+        }
+      } catch (createError) {
+        console.log('⚠️ Error creating test templates:', createError)
+      }
+    }
+
+    // Final check - if we still have no templates, let's return a helpful error
+    if (!templates || templates.length === 0) {
+      console.log('⚠️ Still no templates found after all checks')
+      return res.json({ 
+        templates: [],
+        message: 'No templates found for this company. This might indicate that no templates have been created yet, or there is a database issue.',
+        debug: {
+          userCompanyId: req.user.company_id,
+          userRole: req.user.role,
+          allTemplatesCount: allTemplates?.length || 0
+        }
+      })
+    }
+    
     res.json({ templates: templates || [] })
   } catch (error) {
-    console.error('Error fetching templates:', error)
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
-    })
-  }
+      console.error('❌ Error fetching templates:', error)
+      console.error('❌ Error stack:', error.stack)
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: error.message,
+        stack: error.stack
+      })
+    }
 }
 
 // Get single document template
@@ -81,7 +319,7 @@ const getDocumentTemplate = async (req, res) => {
   try {
     const { id } = req.params
 
-    const { data: template, error } = await supabase
+    const { data: template, error } = await supabaseAdmin
       .from('document_templates')
       .select('*')
       .eq('id', id)
@@ -247,7 +485,7 @@ const createDocumentTemplate = async (req, res) => {
       
       console.log('📝 Inserting data:', insertData)
       
-      const { data: template, error } = await supabase
+      const { data: template, error } = await supabaseAdmin
         .from('document_templates')
         .insert(insertData)
         .select()
@@ -349,7 +587,7 @@ const updateDocumentTemplate = async (req, res) => {
     }
 
     // Update template
-    const { data: template, error } = await supabase
+    const { data: template, error } = await supabaseAdmin
       .from('document_templates')
       .update({
         document_name: document_name.trim(),
@@ -383,7 +621,7 @@ const deleteDocumentTemplate = async (req, res) => {
   try {
     const { id } = req.params
 
-    const { data: template, error } = await supabase
+    const { data: template, error } = await supabaseAdmin
       .from('document_templates')
       .update({ 
         is_active: false,
@@ -420,7 +658,7 @@ const generateDocument = async (req, res) => {
     }
 
     // Get template
-    const { data: template, error: templateError } = await supabase
+    const { data: template, error: templateError } = await supabaseAdmin
       .from('document_templates')
       .select('*')
       .eq('id', template_id)

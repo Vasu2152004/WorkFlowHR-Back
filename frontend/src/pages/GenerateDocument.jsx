@@ -206,8 +206,8 @@ const GenerateDocument = () => {
         return
       }
       if (error.response?.status === 403) {
-        setError('Access denied. You need HR permissions to generate documents.')
-        toast.error('Access denied. You need HR permissions to generate documents.')
+        setError('Access denied. You need Admin or HR permissions to generate documents.')
+        toast.error('Access denied. You need Admin or HR permissions to generate documents.')
         return
       }
       setError(error.message || 'Failed to generate document')
@@ -333,13 +333,13 @@ const GenerateDocument = () => {
     }
   }
 
-  if (!user || user.role !== 'hr') {
+  if (!user || !['admin', 'hr'].includes(user.role)) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>
-          <p className="text-gray-600">Only HR users can generate documents.</p>
+          <p className="text-gray-600">Only Admin and HR users can generate documents.</p>
         </div>
       </div>
     )
@@ -599,4 +599,4 @@ const GenerateDocument = () => {
   )
 }
 
-export default GenerateDocument 
+export default GenerateDocument

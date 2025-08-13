@@ -64,9 +64,19 @@ export const AuthProvider = ({ children }) => {
         company_name
       }
       const response = await apiService.post(API_ENDPOINTS.SIGNUP, userData)
-      toast.success('Account created successfully! Please login.')
-      return true
+      
+      console.log('🔍 Signup response:', response.data)
+      
+      if (response.data && response.data.user) {
+        // Signup successful, return the response data
+        toast.success(`Account created successfully! Welcome to ${response.data.company?.name || 'your company'}. Please login to continue.`)
+        return response.data
+      } else {
+        toast.success('Account created successfully! Please login.')
+        return response.data
+      }
     } catch (error) {
+      console.error('❌ Signup error in AuthContext:', error)
       toast.error(error.response?.data?.error || 'Signup failed')
       return false
     }

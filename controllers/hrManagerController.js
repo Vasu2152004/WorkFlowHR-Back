@@ -5,8 +5,9 @@ const getCompanyHRs = async (req, res) => {
   try {
     const currentUser = req.user;
 
-    if (currentUser.role !== 'hr_manager') {
-      return res.status(403).json({ error: 'Only HR managers can access company HRs' });
+    // Check if user has permission to view company HRs (Admin or HR Manager)
+    if (!['admin', 'hr_manager'].includes(currentUser.role)) {
+      return res.status(403).json({ error: 'Only Admin and HR Manager can access company HRs' });
     }
 
     const { data: hrStaff, error } = await supabaseAdmin
@@ -40,11 +41,18 @@ const getCompanyHRs = async (req, res) => {
 // Add new HR staff (HR Manager only)
 const addHRStaff = async (req, res) => {
   try {
+    console.log('🔍 Add HR Staff request:', { 
+      user: req.user?.id, 
+      userRole: req.user?.role,
+      body: req.body 
+    })
+    
     const currentUser = req.user;
     const { full_name, email, password, role, department, designation } = req.body;
 
-    if (currentUser.role !== 'hr_manager') {
-      return res.status(403).json({ error: 'Only HR managers can add HR staff' });
+    // Check if user has permission to add HR staff (Admin or HR Manager)
+    if (!['admin', 'hr_manager'].includes(currentUser.role)) {
+      return res.status(403).json({ error: 'Only Admin and HR Manager can add HR staff' });
     }
 
     // Validate required fields
@@ -58,6 +66,7 @@ const addHRStaff = async (req, res) => {
     }
 
     // Check if email already exists
+    console.log('🔍 Checking if email already exists:', email)
     const { data: existingUser, error: checkError } = await supabaseAdmin
       .from('users')
       .select('id')
@@ -73,6 +82,7 @@ const addHRStaff = async (req, res) => {
     }
 
     // Create user
+    console.log('🔍 Creating user in Supabase Auth:', { email, role, company_id: currentUser.company_id })
     const { data: user, error: userError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -138,8 +148,9 @@ const getHRManagerDashboard = async (req, res) => {
   try {
     const currentUser = req.user;
 
-    if (currentUser.role !== 'hr_manager') {
-      return res.status(403).json({ error: 'Only HR managers can access dashboard' });
+    // Check if user has permission to access HR dashboard (Admin or HR Manager)
+    if (!['admin', 'hr_manager'].includes(currentUser.role)) {
+      return res.status(403).json({ error: 'Only Admin and HR Manager can access HR dashboard' });
     }
 
     // Get total employees count
@@ -213,8 +224,9 @@ const reassignEmployee = async (req, res) => {
     const currentUser = req.user;
     const { employee_id, new_hr_id } = req.body;
 
-    if (currentUser.role !== 'hr_manager') {
-      return res.status(403).json({ error: 'Only HR managers can reassign employees' });
+    // Check if user has permission to reassign employees (Admin or HR Manager)
+    if (!['admin', 'hr_manager'].includes(currentUser.role)) {
+      return res.status(403).json({ error: 'Only Admin and HR Manager can reassign employees' });
     }
 
     if (!employee_id || !new_hr_id) {

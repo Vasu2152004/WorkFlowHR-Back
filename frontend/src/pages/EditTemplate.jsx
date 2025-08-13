@@ -332,7 +332,7 @@ const EditTemplate = () => {
         <div className="text-center">
           <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>
-          <p className="text-gray-600">Only HR users can edit document templates.</p>
+          <p className="text-gray-600">Only Admin and HR users can edit document templates.</p>
         </div>
       </div>
     )

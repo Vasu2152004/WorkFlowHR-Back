@@ -37,6 +37,7 @@ const authenticateToken = async (req, res, next) => {
     }
 
     // Get user details from our users table using admin client to bypass RLS
+    console.log('🔍 Fetching user data from database for ID:', user.id);
     const { data: userData, error: userError } = await retryOperation(async () => {
       return await supabaseAdmin
         .from('users')
@@ -46,6 +47,7 @@ const authenticateToken = async (req, res, next) => {
     });
 
     if (userError || !userData) {
+      console.log('❌ User not found in database, creating user record...');
       // Get or create company with retry
       let { data: company } = await retryOperation(async () => {
         return await supabaseAdmin
@@ -88,6 +90,12 @@ const authenticateToken = async (req, res, next) => {
 
       req.user = newUser;
     } else {
+      console.log('✅ User found in database:', { 
+        id: userData.id, 
+        company_id: userData.company_id, 
+        role: userData.role,
+        email: userData.email 
+      });
       req.user = userData;
     }
 

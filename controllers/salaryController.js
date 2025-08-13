@@ -268,10 +268,8 @@ const generateSalarySlip = async (req, res) => {
       .select('*')
       .eq('id', employee_id);
 
-    // Apply company isolation for non-admin users
-    if (currentUser.role !== 'admin') {
-      employeeQuery = employeeQuery.eq('company_id', currentUser.company_id);
-    }
+    // Apply company isolation for ALL users (including admin)
+    employeeQuery = employeeQuery.eq('company_id', currentUser.company_id);
 
     const { data: employee, error: empError } = await employeeQuery.single();
 
@@ -442,6 +440,22 @@ const getEmployeeSalarySlips = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // First verify the employee belongs to the same company
+    const { data: employee, error: empError } = await supabaseAdmin
+      .from('employees')
+      .select('company_id')
+      .eq('id', employee_id)
+      .single();
+
+    if (empError || !employee) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    // Apply company isolation
+    if (employee.company_id !== currentUser.company_id) {
+      return res.status(403).json({ error: 'Access denied to this employee' });
+    }
+
     const { data: salarySlips, error } = await supabaseAdmin
       .from('salary_slips')
       .select(`
@@ -478,13 +492,18 @@ const getSalarySlipDetails = async (req, res) => {
       .from('salary_slips')
       .select(`
         *,
-        employee:employees(full_name, email, employee_id, department, designation)
+        employee:employees(full_name, email, employee_id, department, designation, company_id)
       `)
       .eq('id', slip_id)
       .single();
 
     if (slipError || !salarySlip) {
       return res.status(404).json({ error: 'Salary slip not found' });
+    }
+
+    // Apply company isolation
+    if (salarySlip.employee.company_id !== currentUser.company_id) {
+      return res.status(403).json({ error: 'Access denied to this salary slip' });
     }
 
     // Get salary slip details
@@ -528,10 +547,8 @@ const getAllSalarySlips = async (req, res) => {
       .order('month', { ascending: false })
       .limit(50);
 
-    // Apply company isolation for non-admin users
-    if (currentUser.role !== 'admin') {
-      query = query.eq('company_id', currentUser.company_id);
-    }
+    // Apply company isolation for ALL users (including admin)
+    query = query.eq('company_id', currentUser.company_id);
 
     const { data: salarySlips, error } = await query;
 
@@ -556,6 +573,22 @@ const getEmployeeFixedDeductionsList = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // First verify the employee belongs to the same company
+    const { data: employee, error: empError } = await supabaseAdmin
+      .from('employees')
+      .select('company_id')
+      .eq('id', employee_id)
+      .single();
+
+    if (empError || !employee) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    // Apply company isolation
+    if (employee.company_id !== currentUser.company_id) {
+      return res.status(403).json({ error: 'Access denied to this employee' });
+    }
+
     const deductions = await getEmployeeFixedDeductions(employee_id);
     res.json({ deductions });
   } catch (error) {
@@ -577,6 +610,22 @@ const addEmployeeFixedDeduction = async (req, res) => {
     // Validate required fields
     if (!employee_id || !deduction_name || !deduction_type) {
       return res.status(400).json({ error: 'Employee ID, deduction name, and type are required' });
+    }
+
+    // First verify the employee belongs to the same company
+    const { data: employee, error: empError } = await supabaseAdmin
+      .from('employees')
+      .select('company_id')
+      .eq('id', employee_id)
+      .single();
+
+    if (empError || !employee) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    // Apply company isolation
+    if (employee.company_id !== currentUser.company_id) {
+      return res.status(403).json({ error: 'Access denied to this employee' });
     }
 
     if (!['fixed', 'percentage'].includes(deduction_type)) {
@@ -629,6 +678,25 @@ const updateEmployeeFixedDeduction = async (req, res) => {
     // Check if user has permission
     if (!['admin', 'hr_manager', 'hr'].includes(currentUser.role)) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // First verify the deduction belongs to an employee in the same company
+    const { data: deductionWithEmployee, error: checkError } = await supabaseAdmin
+      .from('employee_fixed_deductions')
+      .select(`
+        *,
+        employees!inner(company_id)
+      `)
+      .eq('id', deduction_id)
+      .single();
+
+    if (checkError || !deductionWithEmployee) {
+      return res.status(404).json({ error: 'Deduction not found' });
+    }
+
+    // Apply company isolation
+    if (deductionWithEmployee.employees.company_id !== currentUser.company_id) {
+      return res.status(403).json({ error: 'Access denied to this deduction' });
     }
 
     const updateData = {
@@ -819,22 +887,114 @@ const downloadMySalarySlip = async (req, res) => {
       return res.status(500).json({ error: detailsError.message });
     }
 
-    // Generate PDF
+    // Generate HTML
     try {
-      const pdfBuffer = await generateSalarySlipPDF(salarySlip, employee, details || []);
+      const htmlBuffer = await generateSalarySlipPDF(salarySlip, employee, details || []);
       
-      // Set response headers for PDF download
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="salary_slip_${employee.full_name.replace(/\s+/g, '_')}_${new Date(salarySlip.year, salarySlip.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).replace(/\s+/g, '_')}.pdf"`);
+      // Set response headers for HTML download
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Disposition', `attachment; filename="salary_slip_${employee.full_name.replace(/\s+/g, '_')}_${new Date(salarySlip.year, salarySlip.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).replace(/\s+/g, '_')}.html"`);
       
-      res.send(pdfBuffer);
-    } catch (pdfError) {
-      return res.status(500).json({ error: 'Failed to generate PDF' });
+      res.send(htmlBuffer);
+    } catch (htmlError) {
+      return res.status(500).json({ error: 'Failed to generate HTML' });
     }
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// Download salary slip PDF (for HR users)
+const downloadSalarySlip = async (req, res) => {
+  try {
+    const { id } = req.params
+    const currentUser = req.user
+
+    console.log('🔍 downloadSalarySlip called with:', {
+      salarySlipId: id,
+      currentUser: {
+        id: currentUser.id,
+        role: currentUser.role,
+        company_id: currentUser.company_id
+      }
+    })
+
+    // Check if user has permission
+    if (!['admin', 'hr_manager', 'hr'].includes(currentUser.role)) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    // Get the salary slip with employee details
+    let query = supabaseAdmin
+      .from('salary_slips')
+      .select(`
+        *,
+        employee:employees!inner (
+          id,
+          full_name,
+          email,
+          department,
+          designation,
+          company_id
+        )
+      `)
+      .eq('id', id)
+
+    // Apply company isolation for non-admin users
+    if (currentUser.role !== 'admin') {
+      query = query.eq('employee.company_id', currentUser.company_id)
+    }
+
+    const { data: salarySlip, error: fetchError } = await query.single()
+
+    if (fetchError || !salarySlip) {
+      console.error('❌ Salary slip not found or access denied:', fetchError)
+      return res.status(404).json({ error: 'Salary slip not found or access denied' })
+    }
+
+    console.log('✅ Salary slip access verified, generating PDF...')
+
+    // Get salary slip details
+    const { data: details, error: detailsError } = await supabaseAdmin
+      .from('salary_slip_details')
+      .select('*')
+      .eq('salary_slip_id', id)
+      .order('component_type', { ascending: true })
+      .order('created_at', { ascending: true })
+
+    if (detailsError) {
+      console.error('❌ Failed to fetch salary slip details:', detailsError)
+      return res.status(500).json({ error: 'Failed to fetch salary slip details' })
+    }
+
+    // Generate HTML using the same approach as document generation
+    const htmlBuffer = await generateSalarySlipPDF(salarySlip, salarySlip.employee, details || [])
+
+    if (!htmlBuffer) {
+      return res.status(500).json({ error: 'Failed to generate HTML' })
+    }
+
+    // Set response headers for HTML download
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ]
+    const monthName = monthNames[salarySlip.month - 1]
+    const year = salarySlip.year
+    const filename = `salary_slip_${salarySlip.employee.full_name.replace(/\s+/g, '_')}_${monthName}_${year}.html`
+
+    res.setHeader('Content-Type', 'text/html')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.setHeader('Content-Length', htmlBuffer.length)
+
+    console.log('✅ HTML generated successfully, sending response...')
+    res.send(htmlBuffer)
+
+  } catch (error) {
+    console.error('❌ Download salary slip error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+}
 
 module.exports = {
   getSalaryComponents,
@@ -851,5 +1011,6 @@ module.exports = {
   getMySalarySlips,
   getMySalarySlipDetails,
   downloadMySalarySlip,
+  downloadSalarySlip,
   getUnpaidLeaveDaysForMonth
 }; 

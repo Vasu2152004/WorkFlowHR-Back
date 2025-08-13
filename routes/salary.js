@@ -45,6 +45,7 @@ router.post('/generate', requireHR, validateGenerateSalarySlip, salaryController
 router.get('/employee/:employee_id', requireHR, salaryController.getEmployeeSalarySlips);
 router.get('/my-slips', salaryController.getMySalarySlips); // New route for employees to view their own slips
 router.get('/slip/:slip_id', requireHR, salaryController.getSalarySlipDetails);
+router.get('/slip/:id/download', requireHR, salaryController.downloadSalarySlip); // New route for HR to download salary slips
 router.get('/my-slip/:slip_id', salaryController.getMySalarySlipDetails); // New route for employees to view their own slip details
 router.get('/my-slips/:slip_id/download', salaryController.downloadMySalarySlip); // New route for employees to download their salary slips
 router.get('/all', requireHR, salaryController.getAllSalarySlips);

@@ -223,7 +223,7 @@ const CreateTemplate = () => {
         return
       }
       if (error.response?.status === 403) {
-        toast.error('Access denied. You need HR permissions to create templates.')
+        toast.error('Access denied. You need Admin or HR permissions to create templates.')
         return
       }
       setError(error.message || 'Failed to create template')
@@ -259,13 +259,13 @@ const CreateTemplate = () => {
     setShowThemes(false)
   }
 
-  if (!user || user.role !== 'hr') {
+  if (!user || !['admin', 'hr'].includes(user.role)) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>
-          <p className="text-gray-600">Only HR users can create document templates.</p>
+          <p className="text-gray-600">Only Admin and HR users can create document templates.</p>
         </div>
       </div>
     )
@@ -670,4 +670,4 @@ const CreateTemplate = () => {
   )
 }
 
-export default CreateTemplate 
+export default CreateTemplate

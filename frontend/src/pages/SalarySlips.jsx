@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { apiService, API_ENDPOINTS } from '../config/api'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 import { 
   Download, 
   Eye, 
@@ -135,6 +137,76 @@ export default function SalarySlips() {
 
   const handleViewSlip = (slipId) => {
     navigate(`/salary-slip/${slipId}`)
+  }
+
+  const handleDownloadSalarySlip = async (slipId) => {
+    try {
+      console.log('🔄 Downloading salary slip:', slipId)
+      
+      const response = await apiService.get(`${API_ENDPOINTS.SALARY}/slip/${slipId}/download`, {
+        responseType: 'text'
+      })
+
+      console.log('📊 Download response:', response)
+
+      if (response.status === 200) {
+        // Convert HTML to PDF using jsPDF
+        const htmlContent = response.data
+        
+        // Create a temporary div to render the HTML
+        const tempDiv = document.createElement('div')
+        tempDiv.innerHTML = htmlContent
+        tempDiv.style.position = 'absolute'
+        tempDiv.style.left = '-9999px'
+        tempDiv.style.top = '-9999px'
+        document.body.appendChild(tempDiv)
+
+        // Use html2canvas to convert HTML to canvas
+        const canvas = await html2canvas(tempDiv, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          width: 800,
+          height: tempDiv.scrollHeight
+        })
+
+        // Remove temporary div
+        document.body.removeChild(tempDiv)
+
+        // Create PDF using jsPDF
+        const pdf = new jsPDF('p', 'mm', 'a4')
+        const imgWidth = 210 // A4 width in mm
+        const pageHeight = 295 // A4 height in mm
+        const imgHeight = (canvas.height * imgWidth) / canvas.width
+        let heightLeft = imgHeight
+
+        let position = 0
+
+        // Add first page
+        pdf.addImage(canvas, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+
+        // Add additional pages if needed
+        while (heightLeft >= 0) {
+          position = heightLeft - imgHeight
+          pdf.addPage()
+          pdf.addImage(canvas, 'PNG', 0, position, imgWidth, imgHeight)
+          heightLeft -= pageHeight
+        }
+
+        // Save the PDF
+        const filename = `salary_slip_${slipId}.pdf`
+        pdf.save(filename)
+        
+        toast.success('Salary slip PDF generated and downloaded successfully!')
+      } else {
+        throw new Error('Download failed')
+      }
+    } catch (error) {
+      console.error('❌ Error downloading salary slip:', error)
+      toast.error('Failed to download salary slip')
+    }
   }
 
   const filteredSlips = salarySlips.filter(slip => {
@@ -299,10 +371,13 @@ export default function SalarySlips() {
                           <Eye className="h-4 w-4 mr-2" />
                           View
                         </button>
-                        <button className="btn-secondary flex items-center">
-                          <Download className="h-4 w-4 mr-2" />
-                          Download
-                        </button>
+                                                 <button 
+                           onClick={() => handleDownloadSalarySlip(slip.id)}
+                           className="btn-secondary flex items-center"
+                         >
+                           <Download className="h-4 w-4 mr-2" />
+                           Download
+                         </button>
                       </div>
                     </div>
 

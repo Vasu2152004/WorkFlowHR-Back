@@ -28,6 +28,16 @@ const app = express()
 const PORT = process.env.PORT || 3000
 const NODE_ENV = process.env.NODE_ENV || 'development'
 
+// Debug: Log environment variables
+console.log('🔍 Environment Check:', {
+  NODE_ENV,
+  PORT,
+  SUPABASE_URL: process.env.SUPABASE_URL ? 'SET' : 'NOT_SET',
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'SET' : 'NOT_SET',
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT_SET',
+  JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT_SET'
+})
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {

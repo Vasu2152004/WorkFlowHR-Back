@@ -118,8 +118,8 @@ const getLeaveBalance = async (req, res) => {
     
     console.log('✅ Found employee company:', employeeWithCompany)
 
-    // Apply company isolation for non-admin users
-    if (currentUser.role !== 'admin' && employeeWithCompany.company_id !== currentUser.company_id) {
+    // Apply company isolation for ALL users (including admin)
+    if (employeeWithCompany.company_id !== currentUser.company_id) {
       return res.status(403).json({ error: 'Access denied to this employee' })
     }
 
@@ -276,15 +276,21 @@ const createLeaveRequest = async (req, res) => {
         })
       }
       
-      const { data: empData, error: empErr } = await supabase
+      const { data: empData, error: empErr } = await supabaseAdmin
         .from('employees')
-        .select('id, team_lead_id, created_by')
+        .select('id, team_lead_id, created_by, company_id')
         .eq('id', employee_id)
         .single()
       
       if (empErr || !empData) {
         return res.status(400).json({ error: 'Employee not found' })
       }
+      
+      // Apply company isolation for HR users
+      if (empData.company_id !== currentUser.company_id) {
+        return res.status(403).json({ error: 'Access denied to this employee' })
+      }
+      
       employee = empData
     } else {
       // Regular employees can only create leave requests for themselves
@@ -494,24 +500,22 @@ const getLeaveRequests = async (req, res) => {
       
       query = query.eq('employee_id', employee.id)
     } else if (['hr', 'hr_manager', 'admin'].includes(currentUser.role)) {
-      if (currentUser.role !== 'admin') {
-        // HR and HR Manager can only see leave requests from their company
-        query = query.eq('company_id', currentUser.company_id)
-        
-        // If specific employee is requested, verify they belong to the same company
-        if (employee_id) {
-          const { data: employee, error: empError } = await supabaseAdmin
-            .from('employees')
-            .select('company_id')
-            .eq('id', employee_id)
-            .single()
+      // ALL users (including admin) can only see leave requests from their company
+      query = query.eq('company_id', currentUser.company_id)
+      
+      // If specific employee is requested, verify they belong to the same company
+      if (employee_id) {
+        const { data: employee, error: empError } = await supabaseAdmin
+          .from('employees')
+          .select('company_id')
+          .eq('id', employee_id)
+          .single()
 
-          if (empError || !employee || employee.company_id !== currentUser.company_id) {
-            return res.status(403).json({ error: 'Access denied to this employee' })
-          }
-          
-          query = query.eq('employee_id', employee_id)
+        if (empError || !employee || employee.company_id !== currentUser.company_id) {
+          return res.status(403).json({ error: 'Access denied to this employee' })
         }
+        
+        query = query.eq('employee_id', employee_id)
       }
     } else {
       return res.status(403).json({ error: 'Access denied' })
@@ -558,10 +562,8 @@ const updateLeaveRequest = async (req, res) => {
       .select('*')
       .eq('id', id)
 
-    // Apply company isolation for non-admin users
-    if (req.user.role !== 'admin') {
-      query = query.eq('company_id', req.user.company_id)
-    }
+    // Apply company isolation for ALL users (including admin)
+    query = query.eq('company_id', req.user.company_id)
 
     const { data: leaveRequest, error: fetchError } = await query.single()
 

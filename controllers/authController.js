@@ -5,10 +5,55 @@ const { generatePassword } = require('../utils/passwordGenerator');
 const adminSignup = async (req, res) => {
   try {
     const { email, password, full_name, company_name } = req.body;
-
+    
+    console.log('🔍 Admin signup request:', { email, full_name, company_name })
+    
+    // Check if Supabase is properly configured
+    if (!supabaseAdmin || !supabaseAdmin.from) {
+      console.error('❌ Supabase not properly configured')
+      return res.status(500).json({ error: 'Database not properly configured. Please check environment variables.' });
+    }
+    
     // Validation is handled by route middleware
 
+    // Check if company already exists (company isolation)
+    console.log('🔍 Checking if company already exists...')
+    const { data: existingCompany, error: companyCheckError } = await supabaseAdmin
+      .from('companies')
+      .select('id, name')
+      .eq('name', company_name)
+      .single();
+
+    if (companyCheckError && companyCheckError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('❌ Error checking existing company:', companyCheckError)
+      return res.status(500).json({ error: 'Failed to check existing company: ' + companyCheckError.message });
+    }
+
+    if (existingCompany) {
+      console.log('❌ Company already exists:', existingCompany.name)
+      return res.status(403).json({ error: 'Company already exists. Please use a different company name or contact support.' });
+    }
+
+    // Check if this email is already registered (user isolation)
+    console.log('🔍 Checking if email already exists...')
+    const { data: existingUser, error: userCheckError } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .eq('email', email)
+      .single();
+
+    if (userCheckError && userCheckError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('❌ Error checking existing user:', userCheckError)
+      return res.status(500).json({ error: 'Failed to check existing user: ' + userCheckError.message });
+    }
+
+    if (existingUser) {
+      console.log('❌ Email already registered:', existingUser.email)
+      return res.status(403).json({ error: 'Email already registered. Please use a different email address.' });
+    }
+
     // Create company
+    console.log('🔍 Creating company:', company_name)
     const { data: company, error: companyError } = await supabaseAdmin
       .from('companies')
       .insert([{ name: company_name }])
@@ -16,8 +61,11 @@ const adminSignup = async (req, res) => {
       .single();
 
     if (companyError) {
-      return res.status(500).json({ error: 'Failed to create company' });
+      console.error('❌ Company creation error:', companyError)
+      return res.status(500).json({ error: 'Failed to create company: ' + companyError.message });
     }
+    
+    console.log('✅ Company created:', company)
 
     // Create user in Supabase Auth
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -31,6 +79,14 @@ const adminSignup = async (req, res) => {
     }
 
     // Create admin user in our users table
+    console.log('🔍 Creating user record in database:', {
+      id: authData.user.id,
+      full_name,
+      email,
+      role: 'admin',
+      company_id: company.id
+    })
+    
     const { data: userRecord, error: userError } = await supabaseAdmin
       .from('users')
       .insert([{
@@ -45,24 +101,33 @@ const adminSignup = async (req, res) => {
       .single();
 
     if (userError) {
+      console.error('❌ User record creation error:', userError)
       // If user creation fails, delete the auth user
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-      return res.status(500).json({ error: 'Failed to create user in database' });
+      return res.status(500).json({ error: 'Failed to create user in database: ' + userError.message });
     }
     
+    console.log('✅ User record created:', userRecord)
+    
+    console.log('✅ Admin signup completed successfully')
     res.status(201).json({
-      message: 'Admin user created successfully',
+      message: 'Company and admin user created successfully',
       user: {
         id: authData.user.id,
         email: authData.user.email,
         full_name,
         role: 'admin',
         company_id: company.id
+      },
+      company: {
+        id: company.id,
+        name: company.name
       }
     });
 
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Admin signup exception:', error)
+    res.status(500).json({ error: 'Internal server error: ' + error.message });
   }
 };
 

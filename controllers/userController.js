@@ -290,8 +290,8 @@ const getEmployee = async (req, res) => {
       // Team Lead can see their team members
       query = query.eq('team_lead_id', currentUser.id);
     } else if (currentUser.role === 'admin') {
-      // Admin can see all employees
-      // No additional filter needed
+      // Admin can only see employees in their company
+      query = query.eq('users.company_id', currentUser.company_id);
     } else if (currentUser.role === 'employee') {
       // Employee can only see their own data
       query = query.eq('user_id', currentUser.id);
@@ -354,8 +354,10 @@ const updateEmployee = async (req, res) => {
       query = query.eq('created_by', currentUser.id);
     } else if (currentUser.role === 'hr_manager') {
       query = query.eq('company_id', currentUser.company_id);
+    } else if (currentUser.role === 'admin') {
+      // Admin can only access employees in their company
+      query = query.eq('company_id', currentUser.company_id);
     }
-    // Admin can access all employees, no additional filter needed
 
     const { data: existingEmployee, error: checkError } = await query.single();
 
@@ -420,8 +422,10 @@ const deleteEmployee = async (req, res) => {
       query = query.eq('created_by', currentUser.id);
     } else if (currentUser.role === 'hr_manager') {
       query = query.eq('company_id', currentUser.company_id);
+    } else if (currentUser.role === 'admin') {
+      // Admin can only access employees in their company
+      query = query.eq('company_id', currentUser.company_id);
     }
-    // Admin can access all employees, no additional filter needed
 
     const { data: existingEmployee, error: checkError } = await query.single();
 
@@ -476,8 +480,10 @@ const resetEmployeePassword = async (req, res) => {
       query = query.eq('created_by', currentUser.id);
     } else if (currentUser.role === 'hr_manager') {
       query = query.eq('company_id', currentUser.company_id);
+    } else if (currentUser.role === 'admin') {
+      // Admin can only access employees in their company
+      query = query.eq('company_id', currentUser.company_id);
     }
-    // Admin can access all employees, no additional filter needed
 
     const { data: existingEmployee, error: checkError } = await query.single();
 
@@ -545,25 +551,26 @@ const getCompanyProfile = async (req, res) => {
 
     res.json({ company });
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Company profile fetch exception:', error);
+    res.status(500).json({ error: 'Internal server error: ' + error.message });
   }
 };
 
 // Update company profile (HR only)
 const updateCompanyProfile = async (req, res) => {
   try {
+    console.log('🔍 Company profile update request:', {
+      user: req.user,
+      body: req.body,
+      company_id: req.user.company_id
+    });
+    
     const { 
       name, 
-      description, 
-      industry, 
-      founded_year, 
       website, 
       phone, 
       address, 
-      email,
-      mission,
-      vision,
-      values
+      email
     } = req.body;
 
     // Validate required fields
@@ -572,30 +579,30 @@ const updateCompanyProfile = async (req, res) => {
         error: 'Company name is required' 
       });
     }
+    
+    if (!req.user.company_id) {
+      return res.status(400).json({ 
+        error: 'Company ID not found in user data' 
+      });
+    }
 
-    // Update company profile
-    const { data: company, error } = await supabase
+    // Update company profile - only update columns that exist in the table
+    const { data: company, error } = await supabaseAdmin
       .from('companies')
       .update({ 
         name,
-        description: description || null,
-        industry: industry || null,
-        founded_year: founded_year || null,
         website: website || null,
         phone: phone || null,
         address: address || null,
-        email: email || null,
-        mission: mission || null,
-        vision: vision || null,
-        values: values || null,
-        updated_at: new Date().toISOString()
+        email: email || null
       })
       .eq('id', req.user.company_id)
       .select('*')
       .single();
 
     if (error) {
-      return res.status(500).json({ error: 'Failed to update company profile' });
+      console.error('❌ Company profile update error:', error);
+      return res.status(500).json({ error: 'Failed to update company profile: ' + error.message });
     }
 
     res.json({ 
@@ -604,7 +611,8 @@ const updateCompanyProfile = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Company profile update exception:', error);
+    res.status(500).json({ error: 'Internal server error: ' + error.message });
   }
 };
 

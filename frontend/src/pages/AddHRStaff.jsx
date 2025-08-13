@@ -1,11 +1,13 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { apiService, API_ENDPOINTS } from '../config/api'
 import { toast } from 'react-hot-toast'
-import { UserPlus, Building, Eye, EyeOff } from 'lucide-react'
+import { UserPlus, Building, Eye, EyeOff, ArrowLeft, Shield, User, AlertCircle, CheckCircle, Plus } from 'lucide-react'
 
 export default function AddHRStaff() {
   const { user, isAuthenticated } = useAuth()
+  const navigate = useNavigate()
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -18,6 +20,11 @@ export default function AddHRStaff() {
 
   // Check authentication and permissions on component mount
   useEffect(() => {
+    console.log('🔍 AddHRStaff component mount:', { 
+      isAuthenticated, 
+      user: user ? { id: user.id, role: user.role, email: user.email } : null 
+    })
+    
     if (!isAuthenticated || !user) {
       toast.error('Please login to create HR staff')
       navigate('/login')
@@ -26,15 +33,26 @@ export default function AddHRStaff() {
 
     // Check if user has permission to add HR staff
     if (!['admin', 'hr_manager'].includes(user.role)) {
+      console.log('❌ User role not allowed:', user.role)
       toast.error('Only Admin and HR Manager can create HR staff')
       navigate('/dashboard')
       return
     }
+    
+    console.log('✅ User has permission to add HR staff')
   }, [isAuthenticated, user, navigate])
 
   // If not authenticated, don't render the component
   if (!isAuthenticated || !user || !['admin', 'hr_manager'].includes(user.role)) {
-    return null
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <Shield className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>
+          <p className="text-gray-600">Only Admin and HR Manager can create HR staff.</p>
+        </div>
+      </div>
+    )
   }
 
   const handleInputChange = (e) => {
@@ -76,8 +94,13 @@ export default function AddHRStaff() {
     setSuccess('')
 
     try {
+      console.log('🔍 Starting HR staff creation...')
+      console.log('🔍 Form data:', formData)
+      console.log('🔍 User role:', user.role)
+      
       // Validate form
       if (!validateForm()) {
+        setLoading(false)
         return
       }
 
@@ -87,24 +110,45 @@ export default function AddHRStaff() {
         throw new Error('Authentication token not found. Please login again.')
       }
 
-      // Determine the API endpoint based on role
-      const endpoint = formData.role === 'hr_manager' 
-                  ? API_ENDPOINTS.ADD_HR_MANAGER || '/api/auth/add-hr-manager'
-          : API_ENDPOINTS.ADD_HR_STAFF || '/api/auth/add-hr-staff'
+      // Use the HR manager endpoint for adding HR staff
+      const endpoint = '/hr-manager/hrs'
+      console.log('🔍 API endpoint:', endpoint)
 
       // Send to backend API using apiService
-      const response = await apiService.post(endpoint, {
+      const requestData = {
         full_name: formData.full_name,
         email: formData.email,
-        password: formData.password
-      })
+        password: formData.password,
+        role: formData.role
+      }
+      console.log('🔍 Request data:', requestData)
+
+      const response = await apiService.post(endpoint, requestData)
+      console.log('🔍 API response:', response)
 
       const result = response.data
 
-      if (response.status !== 201) { // 201 Created
+      if (response.status === 201) { // 201 Created
+        // Success - show message and reset form
+        setSuccess(`${formData.role === 'hr_manager' ? 'HR Manager' : 'HR Staff'} created successfully! 
+          Email: ${result.user.email}
+          Role: ${result.user.role}`)
+
+        // Reset form
+        setFormData({
+          full_name: '',
+          email: '',
+          password: '',
+          role: 'hr'
+        })
+
+        // Show toast notification
+        toast.success(`${formData.role === 'hr_manager' ? 'HR Manager' : 'HR Staff'} created successfully!`)
+      } else {
+        // Handle other status codes
         if (response.status === 401) {
           // Token expired or invalid
-          localStorage.removeItem('token')
+          localStorage.removeItem('access_token')
           toast.error('Session expired. Please login again.')
           navigate('/login')
           return
@@ -112,25 +156,28 @@ export default function AddHRStaff() {
         throw new Error(result.error || 'Failed to create HR staff')
       }
 
-      // Show success message
-      setSuccess(`${formData.role === 'hr_manager' ? 'HR Manager' : 'HR Staff'} created successfully! 
-        Email: ${result.user.email}
-        Role: ${result.user.role}`)
 
-      // Reset form
-      setFormData({
-        full_name: '',
-        email: '',
-        password: '',
-        role: 'hr'
-      })
-
-      // Show toast notification
-      toast.success(`${formData.role === 'hr_manager' ? 'HR Manager' : 'HR Staff'} created successfully!`)
 
     } catch (error) {
-      setError(error.message || 'Failed to create HR staff')
-      toast.error(error.message || 'Failed to create HR staff')
+      console.error('❌ HR staff creation error:', error)
+      console.error('❌ Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      })
+      
+      // Handle specific error types
+      if (error.response?.status === 401) {
+        setError('Session expired. Please login again.')
+        toast.error('Session expired. Please login again.')
+        navigate('/login')
+      } else if (error.response?.data?.error) {
+        setError(error.response.data.error)
+        toast.error(error.response.data.error)
+      } else {
+        setError(error.message || 'Failed to create HR staff')
+        toast.error(error.message || 'Failed to create HR staff')
+      }
     } finally {
       setLoading(false)
     }
@@ -161,6 +208,15 @@ export default function AddHRStaff() {
       </header>
 
       <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        {loading && (
+          <div className="mb-6 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-2"></div>
+              <span className="text-blue-600 dark:text-blue-400">Creating HR account...</span>
+            </div>
+          </div>
+        )}
+        
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Add HR Staff</h2>
@@ -296,12 +352,12 @@ export default function AddHRStaff() {
               disabled={loading}
               className="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
             >
-              {loading ? (
-                <>
-                  <div className="loading-spinner h-4 w-4 mr-2"></div>
-                  Creating HR Account...
-                </>
-              ) : (
+                          {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Creating HR Account...
+              </>
+            ) : (
                 <>
                   <Plus className="h-4 w-4 mr-2" />
                   Create HR Account
