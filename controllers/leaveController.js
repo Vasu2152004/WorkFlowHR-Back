@@ -94,45 +94,77 @@ const getLeaveBalance = async (req, res) => {
       console.log('🔍 Employee query result:', { employee, empError })
 
       if (empError || !employee) {
-        console.error('❌ Employee record not found for user_id:', currentUser.id, 'Error:', empError)
-        return res.status(404).json({ error: 'Employee record not found' })
+        // If no employee record found, create one for the current user
+        console.log('⚠️ Employee record not found, creating one for user:', currentUser.id)
+        
+        try {
+          const { data: newEmployee, error: createError } = await supabaseAdmin
+            .from('employees')
+            .insert([{
+              user_id: currentUser.id,
+              full_name: currentUser.full_name || currentUser.email.split('@')[0],
+              email: currentUser.email,
+              company_id: currentUser.company_id,
+              role: currentUser.role,
+              is_active: true
+            }])
+            .select('id, company_id')
+            .single()
+          
+          if (createError) {
+            console.error('❌ Failed to create employee record:', createError)
+            return res.status(500).json({ error: 'Failed to create employee record', details: createError.message })
+          }
+          
+          targetEmployeeId = newEmployee.id
+          console.log('✅ Created employee record with ID:', targetEmployeeId)
+        } catch (createError) {
+          console.error('❌ Exception creating employee record:', createError)
+          return res.status(500).json({ error: 'Failed to create employee record', details: createError.message })
+        }
+      } else {
+        targetEmployeeId = employee.id
+        console.log('✅ Found existing employee ID:', targetEmployeeId)
       }
-      targetEmployeeId = employee.id
-      console.log('✅ Found employee ID:', targetEmployeeId)
     }
 
-    // Get employee's company_id for isolation
-    console.log('🔍 Getting company_id for employee:', targetEmployeeId)
-    const { data: employeeWithCompany, error: companyError } = await supabaseAdmin
-      .from('employees')
-      .select('company_id')
-      .eq('id', targetEmployeeId)
-      .single()
-
-    console.log('🔍 Company query result:', { employeeWithCompany, companyError })
-
-    if (companyError || !employeeWithCompany) {
-      console.error('❌ Employee company not found for employee_id:', targetEmployeeId, 'Error:', companyError)
-      return res.status(404).json({ error: 'Employee company not found' })
-    }
+    // For company isolation, use the current user's company_id
+    // Admin and HR users can view leave balances for employees in their company
+    console.log('🔍 Using current user company_id for isolation:', currentUser.company_id)
     
-    console.log('✅ Found employee company:', employeeWithCompany)
-
-    // Apply company isolation for ALL users (including admin)
-    if (employeeWithCompany.company_id !== currentUser.company_id) {
-      return res.status(403).json({ error: 'Access denied to this employee' })
+    // If the target employee is different from current user, verify they belong to the same company
+    if (targetEmployeeId !== currentUser.id) {
+      // Check if the target employee belongs to the same company
+      const { data: targetEmployee, error: targetError } = await supabaseAdmin
+        .from('employees')
+        .select('company_id')
+        .eq('id', targetEmployeeId)
+        .single()
+      
+      if (targetError || !targetEmployee) {
+        console.error('❌ Target employee not found:', targetError)
+        return res.status(404).json({ error: 'Target employee not found' })
+      }
+      
+      // Verify company isolation
+      if (targetEmployee.company_id !== currentUser.company_id) {
+        console.error('❌ Company isolation violation: target employee company_id:', targetEmployee.company_id, 'current user company_id:', currentUser.company_id)
+        return res.status(403).json({ error: 'Access denied to this employee' })
+      }
+      
+      console.log('✅ Company isolation verified for target employee')
     }
 
     // Get current year
     const currentYear = new Date().getFullYear()
     console.log('🔍 Getting leave balances for year:', currentYear)
 
-    // First, check if leave_balances table exists and has data
-    console.log('🔍 Checking if leave_balances table exists...')
+    // Query the leave_balances table directly
+    console.log('🔍 Querying leave_balances table for employee:', targetEmployeeId, 'year:', currentYear)
     let leaveBalances = []
     
     try {
-      // Try to query the leave_balances table
+      // Query the leave_balances table
       const { data: balanceData, error: balanceError } = await supabaseAdmin
         .from('leave_balances')
         .select(`
@@ -148,14 +180,66 @@ const getLeaveBalance = async (req, res) => {
         .eq('year', currentYear)
 
       if (balanceError) {
-        console.log('⚠️ leave_balances table query failed, falling back to calculation method:', balanceError.message)
-        throw new Error('Table not accessible')
+        console.error('❌ Error querying leave_balances table:', balanceError)
+        return res.status(500).json({ error: 'Failed to fetch leave balances', details: balanceError.message })
       }
 
       leaveBalances = balanceData || []
-      console.log('🔍 Leave balances found:', leaveBalances.length)
-    } catch (tableError) {
-      console.log('🔍 leave_balances table not accessible, using fallback calculation method')
+      console.log('🔍 Leave balances found in table:', leaveBalances.length)
+      
+      // If no balances found, create default balances for this employee
+      if (leaveBalances.length === 0) {
+        console.log('⚠️ No leave balances found, creating default balances...')
+        
+        // Get all leave types
+        const { data: leaveTypes, error: typesError } = await supabaseAdmin
+          .from('leave_types')
+          .select('id, name, description, is_paid')
+          .order('name')
+
+        if (typesError) {
+          console.error('❌ Error fetching leave types:', typesError)
+          return res.status(500).json({ error: 'Failed to fetch leave types' })
+        }
+
+        console.log('🔍 Creating default balances for leave types:', leaveTypes.length)
+        
+        // Create default balances for each leave type
+        const defaultBalances = leaveTypes.map(leaveType => ({
+          employee_id: targetEmployeeId,
+          leave_type_id: leaveType.id,
+          year: currentYear,
+          total_days: leaveType.is_paid ? 20 : (leaveType.name === 'Personal Leave' ? 5 : 10),
+          used_days: 0,
+          remaining_days: leaveType.is_paid ? 20 : (leaveType.name === 'Personal Leave' ? 5 : 10)
+        }))
+        
+        // Insert default balances
+        const { data: insertedBalances, error: insertError } = await supabaseAdmin
+          .from('leave_balances')
+          .insert(defaultBalances)
+          .select(`
+            *,
+            leave_types (
+              id,
+              name,
+              description,
+              is_paid
+            )
+          `)
+
+        if (insertError) {
+          console.error('❌ Error creating default leave balances:', insertError)
+          // Continue with fallback calculation
+          throw new Error('Failed to create default balances')
+        }
+        
+        leaveBalances = insertedBalances || []
+        console.log('✅ Created default leave balances:', leaveBalances.length)
+      }
+      
+    } catch (error) {
+      console.log('⚠️ Error with leave_balances table, using fallback calculation method:', error.message)
       
       // Fallback: Calculate from leave_requests and leave_types
       console.log('🔍 Using fallback calculation method...')
@@ -422,6 +506,66 @@ const createLeaveRequest = async (req, res) => {
     
     console.log('✅ Leave request created successfully:', leaveRequest)
 
+    // Update leave balances for this employee and leave type
+    try {
+      console.log('🔍 Updating leave balances for employee:', employee.id, 'leave type:', leave_type_id)
+      
+      // Get current year
+      const currentYear = new Date().getFullYear()
+      
+      // Check if leave balance record exists
+      const { data: existingBalance, error: balanceCheckError } = await supabaseAdmin
+        .from('leave_balances')
+        .select('*')
+        .eq('employee_id', employee.id)
+        .eq('leave_type_id', leave_type_id)
+        .eq('year', currentYear)
+        .single()
+      
+      if (balanceCheckError && balanceCheckError.code !== 'PGRST116') {
+        console.error('❌ Error checking existing leave balance:', balanceCheckError)
+      }
+      
+      if (existingBalance) {
+        // Update existing balance - reduce remaining days
+        const { error: updateError } = await supabaseAdmin
+          .from('leave_balances')
+          .update({
+            used_days: existingBalance.used_days + totalDays,
+            remaining_days: Math.max(0, existingBalance.remaining_days - totalDays),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingBalance.id)
+        
+        if (updateError) {
+          console.error('❌ Error updating leave balance:', updateError)
+        } else {
+          console.log('✅ Leave balance updated successfully')
+        }
+      } else {
+        // Create new balance record if it doesn't exist
+        const { error: createError } = await supabaseAdmin
+          .from('leave_balances')
+          .insert({
+            employee_id: employee.id,
+            leave_type_id: leave_type_id,
+            year: currentYear,
+            total_days: leaveType.is_paid ? 20 : (leaveType.name === 'Personal Leave' ? 5 : 10),
+            used_days: totalDays,
+            remaining_days: Math.max(0, (leaveType.is_paid ? 20 : (leaveType.name === 'Personal Leave' ? 5 : 10)) - totalDays)
+          })
+        
+        if (createError) {
+          console.error('❌ Error creating leave balance:', createError)
+        } else {
+          console.log('✅ Leave balance record created successfully')
+        }
+      }
+    } catch (balanceError) {
+      console.error('❌ Error updating leave balances:', balanceError)
+      // Don't fail the request if balance update fails
+    }
+
     // Send email notification to HR
     try {
       const hrEmails = await emailService.getHREmails(employeeWithCompany.company_id)
@@ -611,27 +755,64 @@ const updateLeaveRequest = async (req, res) => {
       return res.status(500).json({ error: 'Failed to update leave request' })
     }
 
-    // If approved, deduct leave balance for paid leave types
-    if (status === 'approved_by_hr' && updatedRequest.leave_types?.is_paid) {
+    // If approved, update leave balances in the leave_balances table
+    if (status === 'approved_by_hr') {
       try {
-        const currentBalance = updatedRequest.employees.leave_balance || 0
-        const leaveDays = updatedRequest.total_days || 0
-        const newBalance = Math.max(0, currentBalance - leaveDays)
-
-        // Update employee's leave balance
-        const { error: balanceError } = await supabaseAdmin  // Use admin client to bypass RLS
-          .from('employees')
-          .update({ leave_balance: newBalance })
-          .eq('id', updatedRequest.employee_id)
-
-        if (balanceError) {
-          console.error('Failed to update leave balance:', balanceError)
-          // Don't fail the request, just log the error
+        console.log('🔍 Updating leave balances for approved request:', updatedRequest.id)
+        
+        // Get current year
+        const currentYear = new Date().getFullYear()
+        
+        // Check if leave balance record exists
+        const { data: existingBalance, error: balanceCheckError } = await supabaseAdmin
+          .from('leave_balances')
+          .select('*')
+          .eq('employee_id', updatedRequest.employee_id)
+          .eq('leave_type_id', updatedRequest.leave_type_id)
+          .eq('year', currentYear)
+          .single()
+        
+        if (balanceCheckError && balanceCheckError.code !== 'PGRST116') {
+          console.error('❌ Error checking existing leave balance:', balanceCheckError)
+        }
+        
+        if (existingBalance) {
+          // Update existing balance - reduce remaining days
+          const { error: updateError } = await supabaseAdmin
+            .from('leave_balances')
+            .update({
+              used_days: existingBalance.used_days + updatedRequest.total_days,
+              remaining_days: Math.max(0, existingBalance.remaining_days - updatedRequest.total_days),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingBalance.id)
+          
+          if (updateError) {
+            console.error('❌ Error updating leave balance:', updateError)
+          } else {
+            console.log(`✅ Leave balance updated for employee ${updatedRequest.employees.full_name}: used ${existingBalance.used_days} → ${existingBalance.used_days + updatedRequest.total_days}, remaining ${existingBalance.remaining_days} → ${Math.max(0, existingBalance.remaining_days - updatedRequest.total_days)}`)
+          }
         } else {
-          console.log(`✅ Leave balance updated for employee ${updatedRequest.employees.full_name}: ${currentBalance} → ${newBalance} (deducted ${leaveDays} days)`)
+          // Create new balance record if it doesn't exist
+          const { error: createError } = await supabaseAdmin
+            .from('leave_balances')
+            .insert({
+              employee_id: updatedRequest.employee_id,
+              leave_type_id: updatedRequest.leave_type_id,
+              year: currentYear,
+              total_days: updatedRequest.leave_types?.is_paid ? 20 : (updatedRequest.leave_types?.name === 'Personal Leave' ? 5 : 10),
+              used_days: updatedRequest.total_days,
+              remaining_days: Math.max(0, (updatedRequest.leave_types?.is_paid ? 20 : (updatedRequest.leave_types?.name === 'Personal Leave' ? 5 : 10)) - updatedRequest.total_days)
+            })
+          
+          if (createError) {
+            console.error('❌ Error creating leave balance:', createError)
+          } else {
+            console.log(`✅ Leave balance record created for employee ${updatedRequest.employees.full_name}`)
+          }
         }
       } catch (balanceError) {
-        console.error('Error updating leave balance:', balanceError)
+        console.error('❌ Error updating leave balances:', balanceError)
         // Don't fail the request, just log the error
       }
     }
