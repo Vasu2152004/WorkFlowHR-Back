@@ -179,6 +179,23 @@ const CreateTemplate = () => {
       return
     }
 
+    // Debug: Log user data
+    console.log('👤 User data before submission:', {
+      id: user?.id,
+      company_id: user?.company_id,
+      email: user?.email,
+      role: user?.role,
+      full_user: user
+    })
+
+    // Debug: Log form data
+    console.log('📝 Form data being sent:', {
+      document_name: documentName.trim(),
+      field_tags: fieldTags,
+      content: content,
+      settings: templateSettings
+    })
+
     try {
       const response = await apiService.post(API_ENDPOINTS.DOCUMENTS + '/templates', {
         document_name: documentName.trim(),

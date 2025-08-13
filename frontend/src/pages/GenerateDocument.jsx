@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { 
@@ -16,9 +16,12 @@ import {
   Plus
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import { apiService, API_ENDPOINTS } from '../config/api'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 const GenerateDocument = () => {
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [templates, setTemplates] = useState([])
   const [selectedTemplate, setSelectedTemplate] = useState(null)
@@ -40,22 +43,17 @@ const GenerateDocument = () => {
     try {
       setLoading(true)
       setError('')
-      const token = localStorage.getItem('access_token')
       
-      if (!token) {
-        setError('No authentication token found')
-        toast.error('Please login again')
-        return
-      }
+      const response = await apiService.get(API_ENDPOINTS.DOCUMENTS + '/templates')
 
-      const response = await fetch(`${API_BASE_URL}/documents/templates`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      if (response.status === 200) {
+        const data = response.data
+        setTemplates(data.templates || [])
+        
+        if (data.templates && data.templates.length === 0) {
+          setError('No templates found. Create some templates first.')
         }
-      })
-
-      if (!response.ok) {
+      } else {
         if (response.status === 401) {
           toast.error('Session expired. Please login again.')
           return
@@ -66,13 +64,6 @@ const GenerateDocument = () => {
           return
         }
         throw new Error(`Failed to fetch templates: ${response.status}`)
-      }
-
-      const data = await response.json()
-      setTemplates(data.templates || [])
-      
-      if (data.templates && data.templates.length === 0) {
-        setError('No templates found. Create some templates first.')
       }
     } catch (error) {
       setError(error.message || 'Failed to load templates')
@@ -102,40 +93,31 @@ const GenerateDocument = () => {
     }))
   }
 
-  const replacePlaceholders = (content, values) => {
-    let result = content
-    Object.keys(values).forEach(key => {
-      const placeholder = `{{${key}}}`
-      result = result.replace(new RegExp(placeholder, 'g'), values[key] || `[${key}]`)
-    })
-    return result
-  }
-
-  const generatePreview = () => {
+  const updatePreview = () => {
     if (!selectedTemplate) return
     
-    try {
-      const preview = replacePlaceholders(selectedTemplate.content, fieldValues)
-      setPreviewContent(preview)
-      setIsPreviewMode(true)
-    } catch (error) {
-      toast.error('Error generating preview')
-    }
+    let content = selectedTemplate.content
+    Object.keys(fieldValues).forEach(tag => {
+      const placeholder = `{{${tag}}}`
+      const value = fieldValues[tag] || `[${tag}]`
+      content = content.replace(new RegExp(placeholder, 'g'), value)
+    })
+    setPreviewContent(content)
+    setIsPreviewMode(true) // Enable preview mode
   }
 
   const validateFields = () => {
     if (!selectedTemplate) {
-      setError('Please select a template')
+      setError('Please select a template first')
+      toast.error('Please select a template first')
       return false
     }
 
-    const requiredFields = selectedTemplate.field_tags.filter(field => 
-      field.required !== false // Assume all fields are required unless specified
-    )
-
+    const requiredFields = selectedTemplate.field_tags.filter(field => field.required)
     for (const field of requiredFields) {
       if (!fieldValues[field.tag] || fieldValues[field.tag].trim() === '') {
-        setError(`Please fill in the "${field.label}" field`)
+        setError(`Please fill in the required field: ${field.label}`)
+        toast.error(`Please fill in the required field: ${field.label}`)
         return false
       }
     }
@@ -150,49 +132,161 @@ const GenerateDocument = () => {
       setGenerating(true)
       setError('')
       
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`${API_BASE_URL}/documents/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          template_id: selectedTemplate.id,
-          field_values: fieldValues
-        })
+      console.log('🚀 Attempting PDF generation with endpoint:', API_ENDPOINTS.GENERATE_DOCUMENT)
+      console.log('📋 Template ID:', selectedTemplate.id)
+      console.log('📝 Field values:', fieldValues)
+      
+      const response = await apiService.post(API_ENDPOINTS.GENERATE_DOCUMENT, {
+        template_id: selectedTemplate.id,
+        field_values: fieldValues
+      }, {
+        responseType: 'blob' // Important: Set response type to blob for PDF/HTML
+      })
+      
+      console.log('🔍 PDF Generation Response:', {
+        status: response.status,
+        headers: response.headers,
+        dataType: typeof response.data,
+        dataLength: response.data?.length || 'N/A'
       })
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
+      if (response.status === 200) {
+        // Check content type to determine if it's PDF or HTML
+        const contentType = response.headers['content-type']
+        const isPDF = contentType && contentType.includes('application/pdf')
+        const isHTML = contentType && contentType.includes('text/html')
+        
+        let blob, filename, fileExtension
+        
+        if (isPDF) {
+          // Handle PDF response
+          blob = new Blob([response.data], { type: 'application/pdf' })
+          fileExtension = 'pdf'
+        } else if (isHTML) {
+          // Handle HTML fallback response
+          blob = new Blob([response.data], { type: 'text/html' })
+          fileExtension = 'html'
+        } else {
+          // Fallback: try to detect by content
+          const content = response.data
+          if (content.toString().startsWith('%PDF')) {
+            blob = new Blob([content], { type: 'application/pdf' })
+            fileExtension = 'pdf'
+          } else {
+            blob = new Blob([content], { type: 'text/html' })
+            fileExtension = 'html'
+          }
         }
-        if (response.status === 403) {
-          setError('Access denied. You need HR permissions to generate documents.')
-          toast.error('Access denied. You need HR permissions to generate documents.')
-          return
+        
+        filename = `${selectedTemplate.document_name}_${new Date().toISOString().split('T')[0]}.${fileExtension}`
+        
+        // Download the file
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+
+        if (fileExtension === 'html') {
+          setSuccess('Document generated as HTML! You can open it in your browser and use Print > Save as PDF.')
+          toast.success('HTML document generated! Use browser Print function to save as PDF.')
+        } else {
+          setSuccess('Document generated and downloaded successfully!')
+          toast.success('PDF document generated successfully!')
         }
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to generate document')
+      } else {
+        throw new Error('Failed to generate document')
       }
-
-      // Handle PDF blob response
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${selectedTemplate.document_name}_${new Date().toISOString().split('T')[0]}.pdf`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-
-      setSuccess('Document generated and downloaded successfully!')
-      toast.success('Document generated successfully!')
     } catch (error) {
+      if (error.response?.status === 401) {
+        toast.error('Session expired. Please login again.')
+        return
+      }
+      if (error.response?.status === 403) {
+        setError('Access denied. You need HR permissions to generate documents.')
+        toast.error('Access denied. You need HR permissions to generate documents.')
+        return
+      }
       setError(error.message || 'Failed to generate document')
       toast.error(error.message || 'Failed to generate document')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  // Generate PDF using client-side generation
+  const generatePDFClientSide = async () => {
+    if (!selectedTemplate) return
+    
+    try {
+      setGenerating(true)
+      setError('')
+      
+      // Create a temporary div to render the content
+      const tempDiv = document.createElement('div')
+      tempDiv.innerHTML = previewContent
+      tempDiv.style.position = 'absolute'
+      tempDiv.style.left = '-9999px'
+      tempDiv.style.top = '0'
+      tempDiv.style.width = '800px' // A4 width
+      tempDiv.style.padding = '40px'
+      tempDiv.style.fontFamily = 'Arial, sans-serif'
+      tempDiv.style.fontSize = '14px'
+      tempDiv.style.lineHeight = '1.6'
+      tempDiv.style.color = '#333'
+      tempDiv.style.backgroundColor = 'white'
+      
+      // Add to DOM temporarily
+      document.body.appendChild(tempDiv)
+      
+      // Convert to canvas
+      const canvas = await html2canvas(tempDiv, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        width: 800,
+        height: tempDiv.scrollHeight
+      })
+      
+      // Remove temporary div
+      document.body.removeChild(tempDiv)
+      
+      // Create PDF
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const imgWidth = 210 // A4 width in mm
+      const pageHeight = 295 // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      let heightLeft = imgHeight
+      
+      let position = 0
+      
+      // Add first page
+      pdf.addImage(canvas, 'PNG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+      
+      // Add additional pages if needed
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(canvas, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+      }
+      
+      // Save the PDF
+      const filename = `${selectedTemplate.document_name}_${new Date().toISOString().split('T')[0]}.pdf`
+      pdf.save(filename)
+      
+      setSuccess('PDF generated and downloaded successfully!')
+      toast.success('PDF generated successfully!')
+      
+    } catch (error) {
+      console.error('PDF generation error:', error)
+      setError('Failed to generate PDF. Please try again.')
+      toast.error('PDF generation failed')
     } finally {
       setGenerating(false)
     }
@@ -216,36 +310,23 @@ const GenerateDocument = () => {
 
     try {
       setDeletingTemplate(template.id)
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`${API_BASE_URL}/documents/templates/${template.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
+      const response = await apiService.delete(API_ENDPOINTS.GET_TEMPLATE(template.id))
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Session expired. Please login again.')
-          return
-        }
-        if (response.status === 403) {
-          toast.error('Access denied. You need HR permissions to delete templates.')
-          return
-        }
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete template')
-      }
-
-      toast.success('Template deleted successfully!')
-      fetchTemplates() // Refresh the templates list
-      
-      // If the deleted template was selected, reset the form
-      if (selectedTemplate && selectedTemplate.id === template.id) {
-        resetForm()
+      if (response.status === 200) {
+        toast.success('Template deleted successfully!')
+        fetchTemplates() // Refresh the list
+      } else {
+        throw new Error('Failed to delete template')
       }
     } catch (error) {
+      if (error.response?.status === 401) {
+        toast.error('Session expired. Please login again.')
+        return
+      }
+      if (error.response?.status === 403) {
+        toast.error('Access denied. You need HR permissions to delete templates.')
+        return
+      }
       toast.error(error.message || 'Failed to delete template')
     } finally {
       setDeletingTemplate(null)
@@ -399,7 +480,7 @@ const GenerateDocument = () => {
 
               <div className="flex space-x-3 mt-6">
                 <button
-                  onClick={generatePreview}
+                  onClick={updatePreview}
                   disabled={!Object.values(fieldValues).some(value => value.trim() !== '')}
                   className="btn-secondary flex items-center"
                 >
@@ -422,23 +503,35 @@ const GenerateDocument = () => {
             <div className="card p-6">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Document Preview</h3>
-                <button
-                  onClick={generatePDF}
-                  disabled={generating || !validateFields()}
-                  className="btn-primary flex items-center"
-                >
-                  {generating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Generating PDF...
-                    </>
-                  ) : (
-                    <>
-                      <FileDown className="h-4 w-4 mr-2" />
-                      Download PDF
-                    </>
-                  )}
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={generatePDFClientSide}
+                    disabled={!selectedTemplate || generating}
+                    className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {generating ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Download PDF (Recommended)
+                      </>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={generatePDF}
+                    disabled={generating || !validateFields()}
+                    className="flex items-center justify-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Server-side generation (may not work in production)"
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    Try Server PDF
+                  </button>
+                </div>
               </div>
 
               <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-6 min-h-[400px] bg-white dark:bg-gray-800">

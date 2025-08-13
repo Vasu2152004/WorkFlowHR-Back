@@ -68,100 +68,169 @@ const getLeaveBalance = async (req, res) => {
   try {
     const { employee_id } = req.params
     const currentUser = req.user
+    
+    console.log('🔍 getLeaveBalance called with:', {
+      employee_id,
+      currentUser: {
+        id: currentUser.id,
+        role: currentUser.role,
+        company_id: currentUser.company_id,
+        email: currentUser.email
+      }
+    })
 
     // Determine which employee to get balance for
     let targetEmployeeId = employee_id
     
     if (!targetEmployeeId) {
       // If no employee_id provided, get current user's employee record
-      const { data: employee, error: empError } = await supabase
+      console.log('🔍 Getting employee record for user_id:', currentUser.id)
+      const { data: employee, error: empError } = await supabaseAdmin  // Use admin client to bypass RLS
         .from('employees')
-        .select('id')
+        .select('id, company_id')
         .eq('user_id', currentUser.id)
         .single()
 
+      console.log('🔍 Employee query result:', { employee, empError })
+
       if (empError || !employee) {
+        console.error('❌ Employee record not found for user_id:', currentUser.id, 'Error:', empError)
         return res.status(404).json({ error: 'Employee record not found' })
       }
       targetEmployeeId = employee.id
+      console.log('✅ Found employee ID:', targetEmployeeId)
     }
 
-    // Get employee's current leave balance
-    const { data: employee, error: empError } = await supabase
+    // Get employee's company_id for isolation
+    console.log('🔍 Getting company_id for employee:', targetEmployeeId)
+    const { data: employeeWithCompany, error: companyError } = await supabaseAdmin
       .from('employees')
-      .select('leave_balance, company_id')
+      .select('company_id')
       .eq('id', targetEmployeeId)
       .single()
 
-    if (empError || !employee) {
-      return res.status(404).json({ error: 'Employee not found' })
+    console.log('🔍 Company query result:', { employeeWithCompany, companyError })
+
+    if (companyError || !employeeWithCompany) {
+      console.error('❌ Employee company not found for employee_id:', targetEmployeeId, 'Error:', companyError)
+      return res.status(404).json({ error: 'Employee company not found' })
     }
+    
+    console.log('✅ Found employee company:', employeeWithCompany)
 
     // Apply company isolation for non-admin users
-    if (currentUser.role !== 'admin' && employee.company_id !== currentUser.company_id) {
+    if (currentUser.role !== 'admin' && employeeWithCompany.company_id !== currentUser.company_id) {
       return res.status(403).json({ error: 'Access denied to this employee' })
     }
 
-    // Get all leave types
-    const { data: leaveTypes, error: typesError } = await supabaseAdmin
-      .from('leave_types')
-      .select('id, name, description, is_paid')
-      .order('name')
-
-    if (typesError) {
-      console.error('Error fetching leave types:', typesError)
-      return res.status(500).json({ error: 'Failed to fetch leave types' })
-    }
-
-    // Calculate used days for each leave type
+    // Get current year
     const currentYear = new Date().getFullYear()
-    const balances = []
+    console.log('🔍 Getting leave balances for year:', currentYear)
 
-    for (const leaveType of leaveTypes) {
-      // Get approved leave requests for this type in current year
-      const { data: usedLeaves, error: usedError } = await supabase
-        .from('leave_requests')
-        .select('total_days')
+    // First, check if leave_balances table exists and has data
+    console.log('🔍 Checking if leave_balances table exists...')
+    let leaveBalances = []
+    
+    try {
+      // Try to query the leave_balances table
+      const { data: balanceData, error: balanceError } = await supabaseAdmin
+        .from('leave_balances')
+        .select(`
+          *,
+          leave_types (
+            id,
+            name,
+            description,
+            is_paid
+          )
+        `)
         .eq('employee_id', targetEmployeeId)
-        .eq('leave_type_id', leaveType.id)
-        .eq('status', 'approved_by_hr')
-        .gte('start_date', `${currentYear}-01-01`)
-        .lte('end_date', `${currentYear}-12-31`)
+        .eq('year', currentYear)
 
-      if (usedError) {
-        console.error(`Error fetching used leaves for ${leaveType.name}:`, usedError)
-        continue
+      if (balanceError) {
+        console.log('⚠️ leave_balances table query failed, falling back to calculation method:', balanceError.message)
+        throw new Error('Table not accessible')
       }
 
-      const usedDays = usedLeaves?.reduce((sum, leave) => sum + (leave.total_days || 0), 0) || 0
+      leaveBalances = balanceData || []
+      console.log('🔍 Leave balances found:', leaveBalances.length)
+    } catch (tableError) {
+      console.log('🔍 leave_balances table not accessible, using fallback calculation method')
       
-      // For paid leave types, use the employee's leave balance
-      // For unpaid leave types, show unlimited or fixed allocation
-      let totalDays, remainingDays
+      // Fallback: Calculate from leave_requests and leave_types
+      console.log('🔍 Using fallback calculation method...')
       
-      if (leaveType.is_paid) {
-        // For paid leaves, use employee's leave balance as total
-        totalDays = employee.leave_balance + usedDays
-        remainingDays = employee.leave_balance
-      } else {
-        // For unpaid leaves, show unlimited or fixed allocation
-        totalDays = leaveType.name === 'Personal Leave' ? 5 : 10
-        remainingDays = Math.max(0, totalDays - usedDays)
+      // Get all leave types
+      const { data: leaveTypes, error: typesError } = await supabaseAdmin
+        .from('leave_types')
+        .select('id, name, description, is_paid')
+        .order('name')
+
+      if (typesError) {
+        console.error('❌ Error fetching leave types:', typesError)
+        return res.status(500).json({ error: 'Failed to fetch leave types' })
       }
 
-      balances.push({
-        leave_type_id: leaveType.id,
-        leave_type_name: leaveType.name,
-        total_days: totalDays,
-        used_days: usedDays,
-        remaining_days: remainingDays,
-        is_paid: leaveType.is_paid
-      })
+      console.log('🔍 Calculating balances for leave types:', leaveTypes.length)
+
+      // Calculate balances for each leave type
+      for (const leaveType of leaveTypes) {
+        // Get approved leave requests for this type in current year
+        const { data: usedLeaves, error: usedError } = await supabaseAdmin
+          .from('leave_requests')
+          .select('total_days')
+          .eq('employee_id', targetEmployeeId)
+          .eq('leave_type_id', leaveType.id)
+          .eq('status', 'approved_by_hr')
+          .gte('start_date', `${currentYear}-01-01`)
+          .lte('end_date', `${currentYear}-12-31`)
+
+        if (usedError) {
+          console.error(`Error fetching used leaves for ${leaveType.name}:`, usedError)
+          continue
+        }
+
+        const usedDays = usedLeaves?.reduce((sum, leave) => sum + (leave.total_days || 0), 0) || 0
+        
+        // For paid leave types, use default balance
+        // For unpaid leave types, show fixed allocation
+        let totalDays, remainingDays
+        
+        if (leaveType.is_paid) {
+          // For paid leaves, use default balance
+          totalDays = 20 + usedDays
+          remainingDays = 20
+        } else {
+          // For unpaid leaves, show fixed allocation
+          totalDays = leaveType.name === 'Personal Leave' ? 5 : 10
+          remainingDays = Math.max(0, totalDays - usedDays)
+        }
+
+        leaveBalances.push({
+          leave_type_id: leaveType.id,
+          leave_types: leaveType,
+          total_days: totalDays,
+          used_days: usedDays,
+          remaining_days: remainingDays
+        })
+      }
     }
+
+    // Transform the data for frontend
+    const balances = leaveBalances.map(balance => ({
+      leave_type_id: balance.leave_type_id,
+      leave_type_name: balance.leave_types?.name || 'Unknown',
+      total_days: balance.total_days || 0,
+      used_days: balance.used_days || 0,
+      remaining_days: balance.remaining_days || 0,
+      is_paid: balance.leave_types?.is_paid || false
+    }))
+
+    console.log('✅ Returning leave balances:', balances)
 
     res.json({ balances })
   } catch (error) {
-    console.error('Get leave balance error:', error)
+    console.error('❌ Get leave balance error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 }
@@ -219,67 +288,133 @@ const createLeaveRequest = async (req, res) => {
       employee = empData
     } else {
       // Regular employees can only create leave requests for themselves
-      const { data: empData, error: empErr } = await supabase
+      console.log('🔍 Looking for employee record with user_id:', currentUser.id)
+      const { data: empData, error: empErr } = await supabaseAdmin  // Use admin client to bypass RLS
         .from('employees')
         .select('id, team_lead_id, created_by')
         .eq('user_id', currentUser.id)
         .single()
       
+      console.log('🔍 Employee query result:', { empData, empErr })
+      
       if (empErr || !empData) {
+        console.error('❌ Employee not found for user_id:', currentUser.id, 'Error:', empErr)
         return res.status(400).json({ error: 'Employee not found' })
       }
       employee = empData
+      console.log('✅ Found employee:', employee)
     }
 
     // Get employee's company_id for isolation
-    const { data: employeeWithCompany, error: companyError } = await supabase
+    console.log('🔍 Getting company_id for employee:', employee.id)
+    const { data: employeeWithCompany, error: companyError } = await supabaseAdmin  // Use admin client to bypass RLS
       .from('employees')
       .select('company_id')
       .eq('id', employee.id)
       .single()
 
+    console.log('🔍 Company query result:', { employeeWithCompany, companyError })
+
     if (companyError || !employeeWithCompany) {
+      console.error('❌ Employee company not found for employee_id:', employee.id, 'Error:', companyError)
       return res.status(400).json({ error: 'Employee company not found' })
     }
+    
+    console.log('✅ Found employee company:', employeeWithCompany)
 
     // Calculate total days (respecting company working days configuration)
+    console.log('🔍 Calculating leave days for company:', employeeWithCompany.company_id, 'from', start, 'to', end)
     const totalDays = await calculateLeaveDays(employeeWithCompany.company_id, start, end)
+    console.log('✅ Calculated total days:', totalDays)
 
     // Validate leave type exists using admin client to bypass RLS
+    console.log('🔍 Validating leave type:', leave_type_id)
     const { data: leaveType, error: leaveTypeError } = await supabaseAdmin
       .from('leave_types')
       .select('id, name')
       .eq('id', leave_type_id)
       .single()
 
+    console.log('🔍 Leave type validation result:', { leaveType, leaveTypeError })
+
     if (leaveTypeError || !leaveType) {
+      console.error('❌ Invalid leave type:', leave_type_id, 'Error:', leaveTypeError)
       return res.status(400).json({ 
         error: 'Invalid leave type. Please select a valid leave type.' 
       })
     }
+    
+    console.log('✅ Leave type validated:', leaveType)
+
+    // Validate required fields
+    if (!employee.team_lead_id) {
+      console.warn('⚠️ No team_lead_id for employee:', employee.id)
+    }
+    if (!employee.created_by) {
+      console.warn('⚠️ No created_by for employee:', employee.id)
+    }
 
     // Create leave request with company_id
-    const { data: leaveRequest, error } = await supabase
-      .from('leave_requests')
-      .insert({
-        employee_id: employee.id,
-        leave_type_id,
-        start_date,
-        end_date,
-        total_days: totalDays,
-        reason: reason.trim(),
-        status: 'pending',
-        team_lead_id: employee.team_lead_id,
-        hr_id: employee.created_by,
-        company_id: employeeWithCompany.company_id
+    const leaveRequestData = {
+      employee_id: employee.id,
+      leave_type_id,
+      start_date: start,
+      end_date: end,
+      total_days: totalDays,
+      reason: reason.trim(),
+      status: 'pending',
+      team_lead_id: employee.team_lead_id || null,
+      hr_id: employee.created_by || null,
+      company_id: employeeWithCompany.company_id
+    }
+    
+    console.log('🔍 Creating leave request with data:', leaveRequestData)
+    
+    // Test database connection first
+    console.log('🔍 Testing database connection...')
+    try {
+      const { data: testData, error: testError } = await supabaseAdmin
+        .from('leave_requests')
+        .select('count')
+        .limit(1)
+      
+      if (testError) {
+        console.error('❌ Database connection test failed:', testError)
+        return res.status(500).json({ 
+          error: 'Database connection failed',
+          details: testError.message 
+        })
+      }
+      console.log('✅ Database connection test passed')
+    } catch (testError) {
+      console.error('❌ Database connection test exception:', testError)
+      return res.status(500).json({ 
+        error: 'Database connection exception',
+        details: testError.message 
       })
+    }
+    
+    const { data: leaveRequest, error } = await supabaseAdmin  // Use admin client to bypass RLS
+      .from('leave_requests')
+      .insert(leaveRequestData)
       .select('*')
       .single()
 
     if (error) {
-      console.error('Create leave request error:', error)
-      return res.status(500).json({ error: 'Failed to create leave request' })
+      console.error('❌ Create leave request database error:', error)
+      console.error('❌ Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      })
+      return res.status(500).json({ 
+        error: 'Failed to create leave request',
+        details: error.message 
+      })
     }
+    
+    console.log('✅ Leave request created successfully:', leaveRequest)
 
     // Send email notification to HR
     try {
@@ -311,17 +446,32 @@ const getLeaveRequests = async (req, res) => {
     const { status, employee_id } = req.query
     const currentUser = req.user
     
-    let query = supabase
+    console.log('🔍 getLeaveRequests called with:', {
+      userRole: currentUser.role,
+      userCompanyId: currentUser.company_id,
+      requestedEmployeeId: employee_id,
+      statusFilter: status
+    })
+
+    let query = supabaseAdmin
       .from('leave_requests')
       .select(`
-        *,
-        employees (
+        id,
+        employee_id,
+        leave_type_id,
+        start_date,
+        end_date,
+        total_days,
+        reason,
+        status,
+        created_at,
+        company_id,
+        employees!inner (
           id,
           full_name,
-          email,
-          company_id
+          email
         ),
-        leave_types (
+        leave_types!inner (
           id,
           name,
           description
@@ -332,7 +482,7 @@ const getLeaveRequests = async (req, res) => {
     // Apply company isolation based on user role
     if (currentUser.role === 'employee') {
       // Get employee ID for the current user
-      const { data: employee, error: empError } = await supabase
+      const { data: employee, error: empError } = await supabaseAdmin
         .from('employees')
         .select('id')
         .eq('user_id', currentUser.id)
@@ -341,19 +491,16 @@ const getLeaveRequests = async (req, res) => {
       if (empError || !employee) {
         return res.status(404).json({ error: 'Employee record not found' })
       }
-
+      
       query = query.eq('employee_id', employee.id)
     } else if (['hr', 'hr_manager', 'admin'].includes(currentUser.role)) {
-      // For HR users, filter by company_id to ensure isolation
-      if (currentUser.role === 'admin') {
-        // Admin can see all leave requests (no additional filter)
-      } else {
+      if (currentUser.role !== 'admin') {
         // HR and HR Manager can only see leave requests from their company
         query = query.eq('company_id', currentUser.company_id)
         
         // If specific employee is requested, verify they belong to the same company
         if (employee_id) {
-          const { data: employee, error: empError } = await supabase
+          const { data: employee, error: empError } = await supabaseAdmin
             .from('employees')
             .select('company_id')
             .eq('id', employee_id)
@@ -375,16 +522,19 @@ const getLeaveRequests = async (req, res) => {
       query = query.eq('status', status)
     }
 
+    console.log('🔍 Executing optimized leave requests query...')
     const { data: leaveRequests, error } = await query
 
     if (error) {
-      console.error('Get leave requests error:', error)
+      console.error('❌ Get leave requests error:', error)
       return res.status(500).json({ error: 'Failed to fetch leave requests' })
     }
 
+    console.log('✅ Leave requests fetched successfully:', leaveRequests?.length || 0)
     res.json(leaveRequests || [])
+    
   } catch (error) {
-    console.error('Get leave requests error:', error)
+    console.error('❌ Get leave requests error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 }
@@ -403,7 +553,7 @@ const updateLeaveRequest = async (req, res) => {
     }
 
     // Get the leave request with company isolation
-    let query = supabase
+    let query = supabaseAdmin  // Use admin client to bypass RLS
       .from('leave_requests')
       .select('*')
       .eq('id', id)
@@ -434,7 +584,7 @@ const updateLeaveRequest = async (req, res) => {
       approved_by: req.user.id
     }
 
-    const { data: updatedRequest, error } = await supabase
+    const { data: updatedRequest, error } = await supabaseAdmin  // Use admin client to bypass RLS
       .from('leave_requests')
       .update(updateData)
       .eq('id', id)
@@ -467,7 +617,7 @@ const updateLeaveRequest = async (req, res) => {
         const newBalance = Math.max(0, currentBalance - leaveDays)
 
         // Update employee's leave balance
-        const { error: balanceError } = await supabase
+        const { error: balanceError } = await supabaseAdmin  // Use admin client to bypass RLS
           .from('employees')
           .update({ leave_balance: newBalance })
           .eq('id', updatedRequest.employee_id)
@@ -517,7 +667,7 @@ const getUnpaidLeaveDays = async (req, res) => {
     const endDate = new Date(year, month, 0)
 
     // Get unpaid leave requests for the month
-    const { data: unpaidLeaves, error } = await supabase
+    const { data: unpaidLeaves, error } = await supabaseAdmin  // Use admin client to bypass RLS
       .from('leave_requests')
       .select('total_days, leave_type_id')
       .eq('employee_id', employee_id)

@@ -191,17 +191,29 @@ const emailService = {
     }
 
     try {
-      const { data: employee } = await supabase
+      console.log('🔍 Fetching employee details for leave request notification:', leaveRequest.employee_id)
+      const { data: employee, error: empError } = await supabaseAdmin  // Use admin client to bypass RLS
         .from('employees')
         .select('full_name, email')
         .eq('id', leaveRequest.employee_id)
         .single()
 
-      const { data: leaveType } = await supabaseAdmin
+      if (empError) {
+        console.error('❌ Failed to fetch employee details:', empError)
+      }
+
+      console.log('🔍 Fetching leave type details for notification:', leaveRequest.leave_type_id)
+      const { data: leaveType, error: typeError } = await supabaseAdmin
         .from('leave_types')
         .select('name')
         .eq('id', leaveRequest.leave_type_id)
         .single()
+
+      if (typeError) {
+        console.error('❌ Failed to fetch leave type details:', typeError)
+      }
+
+      console.log('🔍 Employee and leave type data:', { employee, leaveType })
 
       const html = emailTemplates.leaveRequestNotification(
         employee?.full_name || 'Unknown Employee',
@@ -236,17 +248,29 @@ const emailService = {
     }
 
     try {
-      const { data: employee } = await supabase
+      console.log('🔍 Fetching employee details for status update notification:', leaveRequest.employee_id)
+      const { data: employee, error: empError } = await supabaseAdmin  // Use admin client to bypass RLS
         .from('employees')
         .select('full_name, email')
         .eq('id', leaveRequest.employee_id)
         .single()
 
-      const { data: leaveType } = await supabaseAdmin
+      if (empError) {
+        console.error('❌ Failed to fetch employee details:', empError)
+      }
+
+      console.log('🔍 Fetching leave type details for status update notification:', leaveRequest.leave_type_id)
+      const { data: leaveType, error: typeError } = await supabaseAdmin
         .from('leave_types')
         .select('name')
         .eq('id', leaveRequest.leave_type_id)
         .single()
+
+      if (typeError) {
+        console.error('❌ Failed to fetch leave type details:', typeError)
+      }
+
+      console.log('🔍 Employee and leave type data for status update:', { employee, leaveType })
 
       const html = emailTemplates.leaveStatusUpdate(
         employee?.full_name || 'Unknown Employee',
@@ -331,7 +355,8 @@ const emailService = {
   // Get HR emails for notifications
   async getHREmails(companyId = null) {
     try {
-      let query = supabase
+      console.log('🔍 Fetching HR emails for company:', companyId)
+      let query = supabaseAdmin  // Use admin client to bypass RLS
         .from('users')
         .select('email')
         .in('role', ['hr', 'hr_manager', 'admin'])
@@ -348,7 +373,9 @@ const emailService = {
         return []
       }
 
-      return hrUsers?.map(user => user.email) || []
+      const emails = hrUsers?.map(user => user.email) || []
+      console.log('✅ Found HR emails:', emails)
+      return emails
     } catch (error) {
       console.error('❌ Failed to fetch HR emails:', error)
       return []

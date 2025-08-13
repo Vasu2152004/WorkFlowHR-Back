@@ -1,27 +1,24 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { apiService, API_ENDPOINTS } from '../config/api'
 import { 
-  DollarSign, 
-  Plus, 
-  Eye, 
   Download, 
-  Calendar,
-  User,
-  TrendingUp,
-  TrendingDown,
+  Eye, 
+  Plus, 
+  Search, 
+  Calendar, 
+  User, 
+  DollarSign, 
   FileText,
-  Search,
-  Filter,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle
+  ArrowLeft,
+  Filter
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function SalarySlips() {
   const navigate = useNavigate()
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [salarySlips, setSalarySlips] = useState([])
   const [employees, setEmployees] = useState([])
   const [salaryComponents, setSalaryComponents] = useState([])
@@ -37,50 +34,32 @@ export default function SalarySlips() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
-
       // Fetch salary slips
-      const slipsResponse = await fetch(`${API_BASE_URL}/salary/all`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const slipsResponse = await apiService.get(`${API_ENDPOINTS.SALARY}/all`)
 
-      if (slipsResponse.ok) {
-        const slipsData = await slipsResponse.json()
+      if (slipsResponse.status === 200) {
+        const slipsData = slipsResponse.data
         setSalarySlips(slipsData.salarySlips || [])
       }
 
       // Fetch employees
-      const employeesResponse = await fetch(`${API_BASE_URL}/users/employees`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const employeesResponse = await apiService.get(API_ENDPOINTS.EMPLOYEES)
 
-      if (employeesResponse.ok) {
-        const employeesData = await employeesResponse.json()
+      if (employeesResponse.status === 200) {
+        const employeesData = employeesResponse.data
         setEmployees(employeesData.employees || [])
       }
 
       // Fetch salary components
-      const componentsResponse = await fetch(`${API_BASE_URL}/salary/components`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const componentsResponse = await apiService.get(`${API_ENDPOINTS.SALARY}/components`)
 
-      if (componentsResponse.ok) {
-        const componentsData = await componentsResponse.json()
+      if (componentsResponse.status === 200) {
+        const componentsData = componentsResponse.data
         setSalaryComponents(componentsData.components || [])
       }
 
     } catch (error) {
-      console.error('Error fetching data:', error)
+      console.error('❌ Error fetching data:', error)
       toast.error('Failed to fetch data')
     } finally {
       setLoading(false)
@@ -99,27 +78,56 @@ export default function SalarySlips() {
         throw new Error('Authentication token not found')
       }
 
-      const response = await fetch(`${API_BASE_URL}/salary/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
-      })
+      // Debug: Log the exact request being made
+      console.log('🔍 Making API request to:', `${API_ENDPOINTS.SALARY}/generate`)
+      console.log('🔍 Request payload:', formData)
+      console.log('🔍 Request headers:', { Authorization: `Bearer ${token}` })
 
-      const result = await response.json()
+      // Show progress message
+      toast.loading('Generating salary slip... This may take a few seconds.', { duration: 0 })
 
-      if (!response.ok) {
+      const response = await apiService.post(`${API_ENDPOINTS.SALARY}/generate`, formData)
+
+      const result = response.data
+      console.log('🔍 API Response:', { status: response.status, data: result })
+
+      if (response.status !== 200 && response.status !== 201) {
         throw new Error(result.error || 'Failed to generate salary slip')
       }
 
-      toast.success('Salary slip generated successfully!')
+      // Dismiss loading toast and show success
+      toast.dismiss()
+      toast.success('Salary slip generated successfully! Email will be sent shortly.')
       setShowGenerateModal(false)
       fetchData() // Refresh the list
     } catch (error) {
-      console.error('Error generating salary slip:', error)
-      toast.error(error.message || 'Failed to generate salary slip')
+      console.error('❌ Error generating salary slip:', error)
+      
+      // Debug: Log detailed error information
+      if (error.response) {
+        console.error('🔍 Error response:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data,
+          headers: error.response.headers
+        })
+      } else if (error.request) {
+        console.error('🔍 Error request:', error.request)
+      } else {
+        console.error('🔍 Error message:', error.message)
+      }
+      
+      toast.dismiss()
+      
+      // Show the actual backend error message if available
+      let errorMessage = 'Failed to generate salary slip'
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      toast.error(errorMessage)
     } finally {
       setGeneratingSlip(false)
     }
@@ -222,7 +230,7 @@ export default function SalarySlips() {
                 onClick={fetchData}
                 className="btn-secondary flex items-center justify-center"
               >
-                <RefreshCw className="h-5 w-5 mr-2" />
+                <Filter className="h-5 w-5 mr-2" />
                 Refresh
               </button>
             </div>
@@ -363,6 +371,17 @@ function GenerateSalarySlipModal({ employees, salaryComponents, onGenerate, onCl
       toast.error('Please select an employee')
       return
     }
+    
+    // Debug: Log the exact data being sent
+    console.log('🔍 Form data being submitted:', formData)
+    console.log('🔍 Data types:', {
+      employee_id: typeof formData.employee_id,
+      month: typeof formData.month,
+      year: typeof formData.year,
+      additions: Array.isArray(formData.additions),
+      deductions: Array.isArray(formData.deductions)
+    })
+    
     onGenerate(formData)
   }
 

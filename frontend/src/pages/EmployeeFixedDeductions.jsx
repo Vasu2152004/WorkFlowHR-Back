@@ -1,23 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { 
-  DollarSign, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  ArrowLeft,
-  AlertCircle,
-  CheckCircle,
-  Percent,
-  Hash
-} from 'lucide-react'
+import { apiService, API_ENDPOINTS } from '../config/api'
+import { Plus, Edit, Trash2, DollarSign, Percent, FileText, User, ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function EmployeeFixedDeductions() {
   const { employee_id } = useParams()
   const navigate = useNavigate()
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [deductions, setDeductions] = useState([])
   const [employee, setEmployee] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -36,37 +27,24 @@ export default function EmployeeFixedDeductions() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
-
       // Fetch employee details
-      const employeeResponse = await fetch(`${API_BASE_URL}/users/employees/${employee_id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const employeeResponse = await apiService.get(`${API_ENDPOINTS.USER_BY_ID(employee_id)}`)
 
-      if (employeeResponse.ok) {
-        const employeeData = await employeeResponse.json()
+      if (employeeResponse.status === 200) {
+        const employeeData = employeeResponse.data
         setEmployee(employeeData.employee)
       }
 
       // Fetch fixed deductions
-      const deductionsResponse = await fetch(`${API_BASE_URL}/salary/fixed-deductions/${employee_id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const deductionsResponse = await apiService.get(`${API_ENDPOINTS.SALARY}/fixed-deductions/${employee_id}`)
 
-      if (deductionsResponse.ok) {
-        const deductionsData = await deductionsResponse.json()
+      if (deductionsResponse.status === 200) {
+        const deductionsData = deductionsResponse.data
         setDeductions(deductionsData.deductions || [])
       }
 
     } catch (error) {
+      console.error('❌ Error fetching data:', error)
       toast.error('Failed to fetch data')
     } finally {
       setLoading(false)
@@ -85,21 +63,14 @@ export default function EmployeeFixedDeductions() {
         throw new Error('Authentication token not found')
       }
 
-      const response = await fetch(`${API_BASE_URL}/salary/fixed-deductions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          ...formData,
-          employee_id
-        })
+      const response = await apiService.post(`${API_ENDPOINTS.SALARY}/fixed-deductions`, {
+        ...formData,
+        employee_id
       })
 
-      const result = await response.json()
+      const result = response.data
 
-      if (!response.ok) {
+      if (response.status !== 200) {
         throw new Error(result.error || 'Failed to add fixed deduction')
       }
 
@@ -126,18 +97,11 @@ export default function EmployeeFixedDeductions() {
         throw new Error('Authentication token not found')
       }
 
-      const response = await fetch(`${API_BASE_URL}/salary/fixed-deductions/${selectedDeduction.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
-      })
+      const response = await apiService.put(`${API_ENDPOINTS.SALARY}/fixed-deductions/${selectedDeduction.id}`, formData)
 
-      const result = await response.json()
+      const result = response.data
 
-      if (!response.ok) {
+      if (response.status !== 200) {
         throw new Error(result.error || 'Failed to update fixed deduction')
       }
 
@@ -168,16 +132,11 @@ export default function EmployeeFixedDeductions() {
         throw new Error('Authentication token not found')
       }
 
-      const response = await fetch(`${API_BASE_URL}/salary/fixed-deductions/${deductionId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const response = await apiService.delete(`${API_ENDPOINTS.SALARY}/fixed-deductions/${deductionId}`)
 
-      const result = await response.json()
+      const result = response.data
 
-      if (!response.ok) {
+      if (response.status !== 200) {
         throw new Error(result.error || 'Failed to delete fixed deduction')
       }
 
@@ -484,7 +443,7 @@ function FixedDeductionModal({ formData, setFormData, onSubmit, onClose, title, 
                 className="btn-primary flex items-center"
               >
                 {formData.deduction_type === 'fixed' ? (
-                  <Hash className="h-4 w-4 mr-2" />
+                  <FileText className="h-4 w-4 mr-2" />
                 ) : (
                   <Percent className="h-4 w-4 mr-2" />
                 )}

@@ -14,7 +14,10 @@ import {
   Download,
   Eye,
   Edit,
-  Trash2
+  Trash2,
+  Mail,
+  Phone,
+  User
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { apiService, API_ENDPOINTS } from '../config/api'
@@ -46,17 +49,23 @@ const EmployeeDashboard = () => {
   const fetchEmployees = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
-
+      console.log('🔄 Fetching employees...')
+      
       const response = await apiService.get(API_ENDPOINTS.EMPLOYEES)
-      setEmployees(response.data.employees || [])
-      setFilteredEmployees(response.data.employees || [])
+      console.log('📊 Employees API Response:', response)
+      
+      if (response.status === 200) {
+        setEmployees(response.data.employees || [])
+        setFilteredEmployees(response.data.employees || [])
+        console.log('✅ Employees fetched successfully:', response.data.employees?.length || 0)
+      } else {
+        throw new Error(`Failed to fetch employees: ${response.status}`)
+      }
     } catch (error) {
+      console.error('❌ Error fetching employees:', error)
       toast.error('Failed to fetch employees')
+      setEmployees([])
+      setFilteredEmployees([])
     } finally {
       setLoading(false)
     }
@@ -66,16 +75,21 @@ const EmployeeDashboard = () => {
   const fetchSalarySlips = async () => {
     setLoadingSlips(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        toast.error('Authentication token not found')
-        return
-      }
-
+      console.log('🔄 Fetching salary slips...')
+      
       const response = await apiService.get(API_ENDPOINTS.SALARY_SLIPS)
-      setSalarySlips(response.data.salarySlips || [])
+      console.log('📊 Salary Slips API Response:', response)
+      
+      if (response.status === 200) {
+        setSalarySlips(response.data.salarySlips || [])
+        console.log('✅ Salary slips fetched successfully:', response.data.salarySlips?.length || 0)
+      } else {
+        throw new Error(`Failed to fetch salary slips: ${response.status}`)
+      }
     } catch (error) {
+      console.error('❌ Error fetching salary slips:', error)
       toast.error('Failed to fetch salary slips')
+      setSalarySlips([])
     } finally {
       setLoadingSlips(false)
     }
@@ -207,6 +221,27 @@ const EmployeeDashboard = () => {
       bgColor: 'bg-cyan-50 dark:bg-gray-700'
     }
   ]
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-gray-900">Please login to view dashboard</h2>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading && employees.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading employee dashboard...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

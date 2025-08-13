@@ -628,6 +628,86 @@ const getEmployeesForViewing = async (req, res) => {
   }
 };
 
+// Create employee record for existing user (if missing)
+const createEmployeeRecordForUser = async (req, res) => {
+  try {
+    console.log('🔍 createEmployeeRecordForUser called with user:', req.user)
+    const currentUser = req.user;
+    
+    // Check if user already has an employee record
+    console.log('🔍 Checking for existing employee record with user_id:', currentUser.id)
+    const { data: existingEmployee, error: checkError } = await supabaseAdmin
+      .from('employees')
+      .select('id, user_id')
+      .eq('user_id', currentUser.id)
+      .single();
+
+    console.log('🔍 Existing employee check result:', { existingEmployee, checkError })
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('Error checking existing employee record:', checkError);
+      return res.status(500).json({ error: 'Failed to check existing employee record' });
+    }
+
+    if (existingEmployee) {
+      console.log('✅ Employee record already exists:', existingEmployee)
+      return res.status(200).json({ 
+        message: 'Employee record already exists',
+        employee: existingEmployee
+      });
+    }
+
+    console.log('🔍 No existing employee record found, creating new one...')
+
+    // Generate employee ID
+    const employeeId = generateEmployeeId();
+    console.log('🔍 Generated employee ID:', employeeId)
+
+    // Create employee record
+    const employeeData = {
+      user_id: currentUser.id,
+      employee_id: employeeId,
+      full_name: currentUser.full_name,
+      email: currentUser.email,
+      department: currentUser.role === 'admin' ? 'Management' : 
+                 currentUser.role === 'hr_manager' ? 'HR' : 
+                 currentUser.role === 'hr' ? 'HR' : 'General',
+      designation: currentUser.role === 'admin' ? 'Administrator' : 
+                  currentUser.role === 'hr_manager' ? 'HR Manager' : 
+                  currentUser.role === 'hr' ? 'HR Staff' : 'Employee',
+      salary: 0, // Default salary for non-employee roles
+      joining_date: new Date().toISOString().split('T')[0],
+      company_id: currentUser.company_id,
+      created_by: currentUser.id
+      // Removed is_active and leave_balance as they don't exist in the table
+    }
+
+    console.log('🔍 Creating employee record with data:', employeeData)
+
+    const { data: newEmployee, error: createError } = await supabaseAdmin
+      .from('employees')
+      .insert([employeeData])
+      .select()
+      .single();
+
+    if (createError) {
+      console.error('Error creating employee record:', createError);
+      return res.status(500).json({ error: 'Failed to create employee record: ' + createError.message });
+    }
+
+    console.log('✅ Created employee record for user:', currentUser.id, 'Employee ID:', newEmployee.id);
+
+    res.status(201).json({
+      message: 'Employee record created successfully',
+      employee: newEmployee
+    });
+
+  } catch (error) {
+    console.error('Error in createEmployeeRecordForUser:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   addEmployee,
   getEmployees,
@@ -637,5 +717,6 @@ module.exports = {
   resetEmployeePassword,
   getCompanyProfile,
   updateCompanyProfile,
-  getEmployeesForViewing
+  getEmployeesForViewing,
+  createEmployeeRecordForUser
 }; 

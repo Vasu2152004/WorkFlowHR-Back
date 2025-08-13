@@ -233,6 +233,12 @@ router.put('/company/profile', requireHR, validateUpdateCompanyProfile, userCont
 // Employee viewing routes (accessible by all authenticated users)
 router.get('/employees/view', userController.getEmployeesForViewing);
 
+// Create employee record for existing user (if missing)
+router.post('/create-employee-record', userController.createEmployeeRecordForUser);
+
+// Test endpoint to check employee record status
+router.get('/check-employee-record', userController.createEmployeeRecordForUser);
+
 // Employee management routes with hierarchical access
 router.post('/employees', requireHR, validateAddEmployee, userController.addEmployee);
 router.get('/employees', userController.getEmployees);

@@ -1,23 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { apiService, API_ENDPOINTS } from '../config/api'
 import { toast } from 'react-hot-toast'
-import { 
-  Calendar, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Eye, 
-  Filter,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Star,
-  Users,
-  Gift
-} from 'lucide-react'
+import { Calendar, Clock, MapPin, Users, Edit, Trash2, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const CompanyCalendar = () => {
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -43,29 +31,31 @@ const CompanyCalendar = () => {
   const fetchEvents = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem('access_token')
+      console.log('🔄 Fetching calendar events...')
+      
       const year = currentDate.getFullYear()
       const month = currentDate.getMonth() + 1
       
-      let url = `${API_BASE_URL}/company-calendar/events?month=${month}&year=${year}`
+      let url = `${API_ENDPOINTS.COMPANY_CALENDAR}/events?month=${month}&year=${year}`
       if (filterType) {
         url += `&type=${filterType}`
       }
 
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      console.log('📡 API URL:', url)
+      const response = await apiService.get(url)
 
-      if (response.ok) {
-        const data = await response.json()
-        setEvents(data)
+      console.log('📊 API Response:', response)
+
+      if (response.status === 200) {
+        setEvents(response.data || [])
+        console.log('✅ Events fetched successfully:', response.data)
       } else {
-        throw new Error('Failed to fetch calendar events')
+        throw new Error(`Failed to fetch events: ${response.status}`)
       }
     } catch (error) {
+      console.error('❌ Error fetching events:', error)
       toast.error('Failed to fetch calendar events')
+      setEvents([]) // Set empty array on error
     } finally {
       setLoading(false)
     }
@@ -76,39 +66,26 @@ const CompanyCalendar = () => {
     setLoading(true)
 
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        throw new Error('No authentication token found')
-      }
+      console.log('🔄 Submitting calendar event...')
+      console.log('📝 Form data:', formData)
 
       const url = isEditing 
-        ? `${API_BASE_URL}/company-calendar/events/${selectedEvent.id}`
-        : `${API_BASE_URL}/company-calendar/events`
+        ? `${API_ENDPOINTS.COMPANY_CALENDAR}/events/${selectedEvent.id}`
+        : `${API_ENDPOINTS.COMPANY_CALENDAR}/events`
       
-      const response = await fetch(url, {
-        method: isEditing ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
-      })
+      console.log('📡 API URL:', url)
+      
+      const response = isEditing 
+        ? await apiService.put(url, formData)
+        : await apiService.post(url, formData)
 
-      if (!response.ok) {
-        const errorData = await response.text()
-        
-        let errorMessage = 'Failed to save calendar event'
-        try {
-          const parsedError = JSON.parse(errorData)
-          errorMessage = parsedError.error || errorMessage
-        } catch (parseError) {
-          errorMessage = errorData || errorMessage
-        }
-        
-        throw new Error(errorMessage)
+      console.log('📊 API Response:', response)
+
+      if (response.status !== 200 && response.status !== 201) {
+        throw new Error(response.data?.error || 'Failed to save calendar event')
       }
 
-      const data = await response.json()
+      const data = response.data
       toast.success(data.message || 'Calendar event saved successfully')
       
       // Reset form and close modal
@@ -127,35 +104,34 @@ const CompanyCalendar = () => {
       // Refresh events
       fetchEvents()
     } catch (error) {
+      console.error('❌ Error saving event:', error)
       toast.error(error.message || 'Failed to save calendar event')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDelete = async (eventId) => {
+  const deleteEvent = async (eventId) => {
     if (!window.confirm('Are you sure you want to delete this event?')) {
       return
     }
 
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await fetch(`${API_BASE_URL}/company-calendar/events/${eventId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      console.log('🔄 Deleting calendar event:', eventId)
+      
+      const response = await apiService.delete(`${API_ENDPOINTS.COMPANY_CALENDAR}/events/${eventId}`)
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete calendar event')
+      console.log('📊 Delete API Response:', response)
+
+      if (response.status !== 200) {
+        throw new Error(response.data?.error || 'Failed to delete calendar event')
       }
 
-      const data = await response.json()
+      const data = response.data
       toast.success(data.message)
       fetchEvents()
     } catch (error) {
+      console.error('❌ Error deleting event:', error)
       toast.error(error.message || 'Failed to delete calendar event')
     }
   }
@@ -191,13 +167,13 @@ const CompanyCalendar = () => {
   const getEventIcon = (type) => {
     switch (type) {
       case 'holiday':
-        return <Gift className="w-4 h-4 text-red-500" />
+        return <MapPin className="w-4 h-4 text-red-500" />
       case 'special_day':
-        return <Star className="w-4 h-4 text-yellow-500" />
+        return <Users className="w-4 h-4 text-yellow-500" />
       case 'company_event':
-        return <Users className="w-4 h-4 text-blue-500" />
+        return <Clock className="w-4 h-4 text-blue-500" />
       case 'optional_holiday':
-        return <Clock className="w-4 h-4 text-green-500" />
+        return <MapPin className="w-4 h-4 text-green-500" />
       default:
         return <Calendar className="w-4 h-4 text-gray-500" />
     }
@@ -243,7 +219,24 @@ const CompanyCalendar = () => {
   })
 
   if (!user) {
-    return <div className="text-center py-8">Please log in to access this page.</div>
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-gray-900">Please login to view calendar</h2>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading calendar events...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -355,7 +348,7 @@ const CompanyCalendar = () => {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(event.id)}
+                        onClick={() => deleteEvent(event.id)}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         title="Delete Event"
                       >

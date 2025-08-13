@@ -13,12 +13,69 @@ if (!supabaseUrl || !supabaseAnonKey) {
   // Export dummy clients that won't crash the app
   module.exports = {
     supabase: {
-      auth: { signUp: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) },
-      from: () => ({ select: () => ({ single: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) }) })
+      auth: { 
+        signInWithPassword: () => Promise.resolve({ 
+          data: null, 
+          error: { message: 'Supabase not configured' } 
+        }),
+        signUp: () => Promise.resolve({ 
+          data: null, 
+          error: { message: 'Supabase not configured' } 
+        }),
+        signOut: () => Promise.resolve({ 
+          error: { message: 'Supabase not configured' } 
+        })
+      },
+      from: () => ({ 
+        select: () => ({ 
+          single: () => Promise.resolve({ 
+            data: null, 
+            error: { message: 'Supabase not configured' } 
+          }),
+          eq: () => ({ 
+            eq: () => ({ 
+              order: () => Promise.resolve({ 
+                data: [], 
+                error: { message: 'Supabase not configured' } 
+              })
+            })
+          })
+        }),
+        insert: () => Promise.resolve({ 
+          data: null, 
+          error: { message: 'Supabase not configured' } 
+        }),
+        update: () => Promise.resolve({ 
+          data: null, 
+          error: { message: 'Supabase not configured' } 
+        })
+      })
     },
     supabaseAdmin: {
-      auth: { admin: { createUser: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) } },
-      from: () => ({ select: () => ({ single: () => Promise.resolve({ error: { message: 'Supabase not configured' } }) }) })
+      auth: { 
+        admin: { 
+          createUser: () => Promise.resolve({ 
+            data: null, 
+            error: { message: 'Supabase not configured' } 
+          }) 
+        } 
+      },
+      from: () => ({ 
+        select: () => ({ 
+          single: () => Promise.resolve({ 
+            data: null, 
+            error: { message: 'Supabase not configured' } 
+          }),
+          limit: () => Promise.resolve({ 
+            data: null, 
+            error: { message: 'Supabase not configured' } 
+          })
+        }),
+        insert: () => Promise.resolve({ 
+          data: null, 
+          error: { message: 'Supabase not configured' } 
+        })
+      })
     }
   };
   return;

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Calendar, ChevronLeft, ChevronRight, Gift, Star, Users, Clock } from 'lucide-react'
+import { apiService, API_ENDPOINTS } from '../config/api'
 
 const CalendarWidget = ({ limit = 5 }) => {
-  const { user, API_BASE_URL } = useAuth()
+  const { user } = useAuth()
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -29,18 +30,15 @@ const CalendarWidget = ({ limit = 5 }) => {
       const endDate = new Date()
       endDate.setMonth(endDate.getMonth() + 3) // Get events for next 3 months
       
-      const response = await fetch(
-        `${API_BASE_URL}/company-calendar/events/range?start_date=${today}&end_date=${endDate.toISOString().split('T')[0]}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+      const response = await apiService.get(API_ENDPOINTS.COMPANY_CALENDAR_EVENTS_RANGE, {
+        params: {
+          start_date: today,
+          end_date: endDate.toISOString().split('T')[0]
         }
-      )
+      })
 
-      if (response.ok) {
-        const data = await response.json()
+      if (response.status === 200) {
+        const data = response.data
         
         // Sort by date and limit the number of events
         const sortedEvents = data

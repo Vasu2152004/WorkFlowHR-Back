@@ -1,9 +1,56 @@
 const { supabase } = require('../config/supabase')
 const puppeteer = require('puppeteer')
 
+// Check if Supabase is properly configured
+const isSupabaseConfigured = () => {
+  return supabase && supabase.from && typeof supabase.from === 'function'
+}
+
 // Get all document templates for the company
 const getDocumentTemplates = async (req, res) => {
   try {
+    // Check if Supabase is configured
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase not configured, returning mock templates for testing')
+      
+      // Return mock templates for testing when Supabase is not available
+      const mockTemplates = [
+        {
+          id: 'template-1',
+          document_name: 'Employee Offer Letter',
+          field_tags: [
+            { tag: 'employee_name', label: 'Employee Name', required: true },
+            { tag: 'position', label: 'Position', required: true },
+            { tag: 'start_date', label: 'Start Date', required: true },
+            { tag: 'salary', label: 'Salary', required: true }
+          ],
+          content: '<h1>Employee Offer Letter</h1><p>Dear {{employee_name}},</p><p>We are pleased to offer you the position of {{position}} at our company.</p><p>Your start date will be {{start_date}} with a salary of {{salary}}.</p>',
+          settings: {},
+          company_id: req.user?.company_id || 'test-company',
+          is_active: true,
+          created_at: new Date().toISOString()
+        },
+        {
+          id: 'template-2',
+          document_name: 'Leave Request Form',
+          field_tags: [
+            { tag: 'employee_name', label: 'Employee Name', required: true },
+            { tag: 'leave_type', label: 'Leave Type', required: true },
+            { tag: 'start_date', label: 'Start Date', required: true },
+            { tag: 'end_date', label: 'End Date', required: true },
+            { tag: 'reason', label: 'Reason', required: false }
+          ],
+          content: '<h1>Leave Request Form</h1><p>Employee: {{employee_name}}</p><p>Leave Type: {{leave_type}}</p><p>From: {{start_date}} To: {{end_date}}</p><p>Reason: {{reason}}</p>',
+          settings: {},
+          company_id: req.user?.company_id || 'test-company',
+          is_active: true,
+          created_at: new Date().toISOString()
+        }
+      ]
+      
+      return res.json({ templates: mockTemplates })
+    }
+
     const { data: templates, error } = await supabase
       .from('document_templates')
       .select('*')
@@ -12,6 +59,7 @@ const getDocumentTemplates = async (req, res) => {
       .order('created_at', { ascending: false })
 
     if (error) {
+      console.error('Supabase error fetching templates:', error)
       return res.status(500).json({ 
         error: 'Failed to fetch templates',
         details: error.message 
@@ -20,6 +68,7 @@ const getDocumentTemplates = async (req, res) => {
 
     res.json({ templates: templates || [] })
   } catch (error) {
+    console.error('Error fetching templates:', error)
     res.status(500).json({ 
       error: 'Internal server error',
       details: error.message 
@@ -52,10 +101,19 @@ const getDocumentTemplate = async (req, res) => {
 // Create new document template
 const createDocumentTemplate = async (req, res) => {
   try {
+    console.log('🔄 Creating document template...')
+    console.log('📝 Request body:', { 
+      document_name: req.body.document_name,
+      field_tags_count: req.body.field_tags?.length || 0,
+      content_length: req.body.content?.length || 0,
+      user: req.user ? { id: req.user.id, company_id: req.user.company_id } : 'No user'
+    })
+
     const { document_name, field_tags, content, settings = {} } = req.body
 
     // Validate required fields
     if (!document_name || !field_tags || !content) {
+      console.log('❌ Validation failed:', { document_name: !!document_name, field_tags: !!field_tags, content: !!content })
       return res.status(400).json({ 
         error: 'Document name, field tags, and content are required' 
       })
@@ -63,6 +121,7 @@ const createDocumentTemplate = async (req, res) => {
 
     // Validate field_tags structure
     if (!Array.isArray(field_tags) || field_tags.length === 0) {
+      console.log('❌ Field tags validation failed:', { field_tags })
       return res.status(400).json({ 
         error: 'At least one field tag is required' 
       })
@@ -72,6 +131,7 @@ const createDocumentTemplate = async (req, res) => {
     for (let i = 0; i < field_tags.length; i++) {
       const field = field_tags[i]
       if (!field.tag || !field.label) {
+        console.log('❌ Field tag validation failed at index', i, field)
         return res.status(400).json({ 
           error: `Field ${i + 1} must have both tag and label` 
         })
@@ -82,15 +142,100 @@ const createDocumentTemplate = async (req, res) => {
     const tags = field_tags.map(f => f.tag)
     const uniqueTags = [...new Set(tags)]
     if (tags.length !== uniqueTags.length) {
+      console.log('❌ Duplicate tags found:', tags)
       return res.status(400).json({ 
         error: 'Duplicate field tags are not allowed' 
       })
     }
 
-    // Create template
-    const { data: template, error } = await supabase
-      .from('document_templates')
-      .insert({
+    // Validate user object
+    if (!req.user) {
+      console.error('❌ User object missing in createDocumentTemplate')
+      return res.status(401).json({ 
+        error: 'User authentication required' 
+      })
+    }
+
+    if (!req.user.company_id) {
+      console.error('❌ User company_id missing:', req.user)
+      return res.status(400).json({ 
+        error: 'User company information missing' 
+      })
+    }
+
+    console.log('✅ Validation passed, checking Supabase configuration...')
+    console.log('👤 User object details:', {
+      id: req.user?.id,
+      company_id: req.user?.company_id,
+      email: req.user?.email,
+      role: req.user?.role,
+      full_user_object: req.user
+    })
+
+    // Check if Supabase is configured
+    if (!isSupabaseConfigured()) {
+      console.warn('⚠️ Supabase not configured, returning mock success for testing')
+      
+      // Return mock success for testing when Supabase is not available
+      const mockTemplate = {
+        id: `template-${Date.now()}`,
+        document_name,
+        field_tags,
+        content,
+        settings,
+        company_id: req.user.company_id,
+        created_by: req.user.id,
+        is_active: true,
+        created_at: new Date().toISOString()
+      }
+      
+      console.log('✅ Mock template created successfully')
+      return res.status(201).json({ 
+        message: 'Template created successfully (mock mode)',
+        template: mockTemplate 
+      })
+    }
+
+    console.log('🔄 Supabase configured, creating template in database...')
+
+    // Test foreign key references first
+    console.log('🔍 Testing foreign key references...')
+    
+    // Check if company exists
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('id', req.user.company_id)
+      .single()
+    
+    if (companyError || !company) {
+      console.error('❌ Company not found:', req.user.company_id)
+      return res.status(400).json({ 
+        error: 'Company not found',
+        details: `Company ID ${req.user.company_id} does not exist`
+      })
+    }
+    
+    // Check if user exists
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', req.user.id)
+      .single()
+    
+    if (userError || !user) {
+      console.error('❌ User not found:', req.user.id)
+      return res.status(400).json({ 
+        error: 'User not found',
+        details: `User ID ${req.user.id} does not exist`
+      })
+    }
+    
+    console.log('✅ Foreign key references verified')
+
+    // Create template with better error handling
+    try {
+      const insertData = {
         company_id: req.user.company_id,
         document_name,
         field_tags,
@@ -98,23 +243,69 @@ const createDocumentTemplate = async (req, res) => {
         settings,
         created_by: req.user.id,
         is_active: true
-      })
-      .select()
-      .single()
+      }
+      
+      console.log('📝 Inserting data:', insertData)
+      
+      const { data: template, error } = await supabase
+        .from('document_templates')
+        .insert(insertData)
+        .select()
+        .single()
 
-    if (error) {
+      if (error) {
+        console.error('❌ Supabase error creating template:', error)
+        console.error('❌ Error details:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        })
+        
+        // Check for specific error types
+        if (error.code === '23502') {
+          return res.status(500).json({ 
+            error: 'Missing required field in database',
+            details: error.message 
+          })
+        } else if (error.code === '42P01') {
+          return res.status(500).json({ 
+            error: 'Database table not found',
+            details: 'document_templates table does not exist'
+          })
+        } else if (error.code === '23503') {
+          return res.status(500).json({ 
+            error: 'Foreign key constraint violation',
+            details: error.message 
+          })
+        } else {
+          return res.status(500).json({ 
+            error: 'Failed to create template',
+            details: error.message 
+          })
+        }
+      }
+
+      console.log('✅ Template created successfully in database:', template.id)
+
+      res.status(201).json({ 
+        message: 'Template created successfully',
+        template 
+      })
+      
+    } catch (dbError) {
+      console.error('❌ Database operation failed:', dbError)
       return res.status(500).json({ 
-        error: 'Failed to create template',
-        details: error.message 
+        error: 'Database operation failed',
+        details: dbError.message 
       })
     }
-
-    res.status(201).json({ 
-      message: 'Template created successfully',
-      template 
-    })
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('❌ Unexpected error in createDocumentTemplate:', error)
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    })
   }
 }
 
@@ -250,12 +441,25 @@ const generateDocument = async (req, res) => {
     })
 
     // Generate PDF with proper formatting preservation
+    console.log('🔄 Starting PDF generation...')
     const pdfBuffer = await generatePDFFromHTML(generatedContent)
+    console.log('📊 PDF generation completed, buffer size:', pdfBuffer.length)
+    console.log('🔍 Buffer starts with:', pdfBuffer.toString().substring(0, 100))
 
-    // Set response headers for PDF download
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="${template.document_name}_${new Date().toISOString().split('T')[0]}.pdf"`)
-    res.setHeader('Content-Length', pdfBuffer.length)
+    // Check if we got a PDF or HTML fallback
+    if (pdfBuffer.toString().startsWith('%PDF')) {
+      // It's a PDF
+      console.log('✅ Detected PDF content, setting PDF headers')
+      res.setHeader('Content-Type', 'application/pdf')
+      res.setHeader('Content-Disposition', `attachment; filename="${template.document_name}_${new Date().toISOString().split('T')[0]}.pdf"`)
+      res.setHeader('Content-Length', pdfBuffer.length)
+    } else {
+      // It's HTML fallback
+      console.log('⚠️ Detected HTML fallback content, setting HTML headers')
+      res.setHeader('Content-Type', 'text/html')
+      res.setHeader('Content-Disposition', `attachment; filename="${template.document_name}_${new Date().toISOString().split('T')[0]}.html"`)
+      res.setHeader('Content-Length', pdfBuffer.length)
+    }
     
     res.send(pdfBuffer)
 
@@ -267,15 +471,29 @@ const generateDocument = async (req, res) => {
 // Generate PDF from HTML content with formatting preservation
 const generatePDFFromHTML = async (htmlContent) => {
   let browser
+  
   try {
-    // Launch browser
+    // Method 1: Try Puppeteer with serverless-friendly options
+    console.log('🔄 Attempting PDF generation with Puppeteer...')
+    
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor'
+      ]
     })
 
     const page = await browser.newPage()
-
+    
     // Create a complete HTML document with proper styling
     const fullHTML = `
       <!DOCTYPE html>
@@ -285,16 +503,8 @@ const generatePDFFromHTML = async (htmlContent) => {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Generated Document</title>
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-            
-            * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-            }
-            
             body {
-              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              font-family: Arial, sans-serif;
               line-height: 1.6;
               color: #333;
               background: white;
@@ -302,185 +512,66 @@ const generatePDFFromHTML = async (htmlContent) => {
               font-size: 14px;
             }
             
-            /* Preserve all rich text formatting */
-            .prose {
-              max-width: none;
-            }
-            
-            .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+            h1, h2, h3, h4, h5, h6 {
               margin-top: 1.5em;
               margin-bottom: 0.5em;
               font-weight: 600;
               line-height: 1.25;
             }
             
-            .prose h1 { font-size: 2.25em; }
-            .prose h2 { font-size: 1.875em; }
-            .prose h3 { font-size: 1.5em; }
-            .prose h4 { font-size: 1.25em; }
-            .prose h5 { font-size: 1.125em; }
-            .prose h6 { font-size: 1em; }
+            h1 { font-size: 2.25em; }
+            h2 { font-size: 1.875em; }
+            h3 { font-size: 1.5em; }
+            h4 { font-size: 1.25em; }
+            h5 { font-size: 1.125em; }
+            h6 { font-size: 1em; }
             
-            .prose p {
+            p {
               margin-bottom: 1em;
               text-align: justify;
             }
             
-            .prose ul, .prose ol {
+            ul, ol {
               margin-bottom: 1em;
               padding-left: 1.5em;
             }
             
-            .prose li {
+            li {
               margin-bottom: 0.25em;
             }
             
-            .prose blockquote {
+            blockquote {
               border-left: 4px solid #e5e7eb;
               padding-left: 1em;
               margin: 1em 0;
               font-style: italic;
             }
             
-            .prose table {
+            table {
               width: 100%;
               border-collapse: collapse;
               margin: 1em 0;
             }
             
-            .prose th, .prose td {
+            th, td {
               border: 1px solid #d1d5db;
               padding: 0.5em;
               text-align: left;
             }
             
-            .prose th {
+            th {
               background-color: #f9fafb;
               font-weight: 600;
             }
             
-            /* Preserve text alignment */
-            .text-left { text-align: left; }
-            .text-center { text-align: center; }
-            .text-right { text-align: right; }
-            .text-justify { text-align: justify; }
-            
-            /* Preserve font weights */
-            .font-light { font-weight: 300; }
-            .font-normal { font-weight: 400; }
-            .font-medium { font-weight: 500; }
-            .font-semibold { font-weight: 600; }
-            .font-bold { font-weight: 700; }
-            
-            /* Preserve text colors */
-            .text-gray-900 { color: #111827; }
-            .text-gray-800 { color: #1f2937; }
-            .text-gray-700 { color: #374151; }
-            .text-gray-600 { color: #4b5563; }
-            .text-gray-500 { color: #6b7280; }
-            .text-gray-400 { color: #9ca3af; }
-            .text-gray-300 { color: #d1d5db; }
-            .text-gray-200 { color: #e5e7eb; }
-            .text-gray-100 { color: #f3f4f6; }
-            
-            /* Preserve spacing */
-            .space-y-1 > * + * { margin-top: 0.25rem; }
-            .space-y-2 > * + * { margin-top: 0.5rem; }
-            .space-y-3 > * + * { margin-top: 0.75rem; }
-            .space-y-4 > * + * { margin-top: 1rem; }
-            .space-y-5 > * + * { margin-top: 1.25rem; }
-            .space-y-6 > * + * { margin-top: 1.5rem; }
-            
-            /* Preserve margins and padding */
-            .m-1 { margin: 0.25rem; }
-            .m-2 { margin: 0.5rem; }
-            .m-3 { margin: 0.75rem; }
-            .m-4 { margin: 1rem; }
-            .m-5 { margin: 1.25rem; }
-            .m-6 { margin: 1.5rem; }
-            
-            .p-1 { padding: 0.25rem; }
-            .p-2 { padding: 0.5rem; }
-            .p-3 { padding: 0.75rem; }
-            .p-4 { padding: 1rem; }
-            .p-5 { padding: 1.25rem; }
-            .p-6 { padding: 1.5rem; }
-            
-            /* Preserve borders */
-            .border { border: 1px solid #d1d5db; }
-            .border-2 { border: 2px solid #d1d5db; }
-            .border-gray-200 { border-color: #e5e7eb; }
-            .border-gray-300 { border-color: #d1d5db; }
-            .border-gray-400 { border-color: #9ca3af; }
-            
-            /* Preserve background colors */
-            .bg-white { background-color: #ffffff; }
-            .bg-gray-50 { background-color: #f9fafb; }
-            .bg-gray-100 { background-color: #f3f4f6; }
-            .bg-gray-200 { background-color: #e5e7eb; }
-            
-            /* Preserve rounded corners */
-            .rounded { border-radius: 0.25rem; }
-            .rounded-lg { border-radius: 0.5rem; }
-            .rounded-xl { border-radius: 0.75rem; }
-            
-            /* Preserve shadows */
-            .shadow { box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); }
-            .shadow-md { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
-            .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
-            
-            /* Preserve flexbox */
-            .flex { display: flex; }
-            .flex-col { flex-direction: column; }
-            .flex-row { flex-direction: row; }
-            .items-center { align-items: center; }
-            .justify-center { justify-content: center; }
-            .justify-between { justify-content: space-between; }
-            
-            /* Preserve grid */
-            .grid { display: grid; }
-            .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
-            .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-            .gap-1 { gap: 0.25rem; }
-            .gap-2 { gap: 0.5rem; }
-            .gap-3 { gap: 0.75rem; }
-            .gap-4 { gap: 1rem; }
-            .gap-5 { gap: 1.25rem; }
-            .gap-6 { gap: 1.5rem; }
-            
-            /* Page break settings */
             @page {
               margin: 1in;
               size: A4;
             }
-            
-            /* Avoid page breaks inside important elements */
-            h1, h2, h3, h4, h5, h6, p, table, blockquote {
-              page-break-inside: avoid;
-            }
-            
-            /* Force page breaks where needed */
-            .page-break { page-break-before: always; }
-            
-            /* Ensure proper spacing for printing */
-            @media print {
-              body {
-                padding: 0;
-                margin: 0;
-              }
-              
-              .prose {
-                max-width: none;
-                margin: 0;
-              }
-            }
           </style>
         </head>
         <body>
-          <div class="prose">
-            ${htmlContent}
-          </div>
+          ${htmlContent}
         </body>
       </html>
     `
@@ -501,13 +592,186 @@ const generatePDFFromHTML = async (htmlContent) => {
       preferCSSPageSize: true
     })
 
+    console.log('✅ PDF generated successfully with Puppeteer')
     return pdf
 
   } catch (error) {
-    throw new Error('Failed to generate PDF')
+    console.error('❌ Puppeteer PDF generation failed:', error.message)
+    
+    // Method 2: Try to use a different approach or fallback
+    try {
+      console.log('🔄 Attempting alternative PDF generation...')
+      
+      // For now, return HTML with instructions for manual PDF conversion
+      const fallbackHTML = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Generated Document (Manual PDF Conversion)</title>
+            <style>
+              body {
+                font-family: Arial, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                background: white;
+                padding: 40px;
+                font-size: 14px;
+                max-width: 800px;
+                margin: 0 auto;
+              }
+              
+              h1, h2, h3, h4, h5, h6 {
+                margin-top: 1.5em;
+                margin-bottom: 0.5em;
+                font-weight: 600;
+                line-height: 1.25;
+              }
+              
+              h1 { font-size: 2.25em; }
+              h2 { font-size: 1.875em; }
+              h3 { font-size: 1.5em; }
+              h4 { font-size: 1.25em; }
+              h5 { font-size: 1.125em; }
+              h6 { font-size: 1em; }
+              
+              p {
+                margin-bottom: 1em;
+                text-align: justify;
+              }
+              
+              ul, ol {
+                margin-bottom: 1em;
+                padding-left: 1.5em;
+              }
+              
+              li {
+                margin-bottom: 0.25em;
+              }
+              
+              blockquote {
+                border-left: 4px solid #e5e7eb;
+                padding-left: 1em;
+                margin: 1em 0;
+                font-style: italic;
+              }
+              
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 1em 0;
+              }
+              
+              th, td {
+                border: 1px solid #d1d5db;
+                padding: 0.5em;
+                text-align: left;
+              }
+              
+              th {
+                background-color: #f9fafb;
+                font-weight: 600;
+              }
+              
+              .conversion-notice {
+                background: #dbeafe;
+                border: 1px solid #3b82f6;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 24px;
+                color: #1e40af;
+              }
+              
+              .conversion-notice h3 {
+                margin-top: 0;
+                color: #1e3a8a;
+              }
+              
+              .conversion-steps {
+                background: #f0f9ff;
+                border: 1px solid #0ea5e9;
+                border-radius: 8px;
+                padding: 16px;
+                margin: 16px 0;
+              }
+              
+              .conversion-steps ol {
+                margin: 0;
+                padding-left: 20px;
+              }
+              
+              .conversion-steps li {
+                margin-bottom: 8px;
+              }
+              
+              @media print {
+                body { padding: 20px; }
+                .conversion-notice, .conversion-steps { display: none; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="conversion-notice">
+              <h3>📄 Manual PDF Conversion Required</h3>
+              <p><strong>PDF generation is temporarily unavailable in the current environment.</strong></p>
+              <p>This document has been generated as HTML. Please follow the steps below to convert it to PDF.</p>
+            </div>
+            
+            <div class="conversion-steps">
+              <h4>How to Convert to PDF:</h4>
+              <ol>
+                <li><strong>Save this file</strong> as an HTML file (.html extension)</li>
+                <li><strong>Open it in your web browser</strong> (Chrome, Firefox, Edge, etc.)</li>
+                <li><strong>Use Print function</strong> (Ctrl+P or Cmd+P)</li>
+                <li><strong>Select "Save as PDF"</strong> as the destination</li>
+                <li><strong>Choose your preferred settings</strong> and save</li>
+              </ol>
+            </div>
+            
+            <hr style="margin: 32px 0; border: none; border-top: 2px solid #e5e7eb;">
+            
+            ${htmlContent}
+          </body>
+        </html>
+      `
+      
+      console.log('🔄 Returning HTML with manual conversion instructions')
+      return Buffer.from(fallbackHTML, 'utf8')
+      
+    } catch (fallbackError) {
+      console.error('❌ Fallback generation also failed:', fallbackError.message)
+      
+      // Final fallback: Simple HTML
+      const simpleHTML = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>Document</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; }
+            </style>
+          </head>
+          <body>
+            <h2>PDF Generation Unavailable</h2>
+            <p>Please contact support or try again later.</p>
+            <hr>
+            ${htmlContent}
+          </body>
+        </html>
+      `
+      
+      return Buffer.from(simpleHTML, 'utf8')
+    }
+    
   } finally {
     if (browser) {
-      await browser.close()
+      try {
+        await browser.close()
+      } catch (closeError) {
+        console.warn('⚠️ Error closing browser:', closeError.message)
+      }
     }
   }
 }

@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useNavigate } from 'react-router-dom'
-import { User, Mail, Shield, ArrowLeft, Plus, CheckCircle, AlertCircle } from 'lucide-react'
-import toast from 'react-hot-toast'
+import { apiService, API_ENDPOINTS } from '../config/api'
+import { toast } from 'react-hot-toast'
+import { UserPlus, Building, Eye, EyeOff } from 'lucide-react'
 
 export default function AddHRStaff() {
   const { user, isAuthenticated } = useAuth()
-  const navigate = useNavigate()
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -90,26 +89,19 @@ export default function AddHRStaff() {
 
       // Determine the API endpoint based on role
       const endpoint = formData.role === 'hr_manager' 
-        ? 'http://localhost:3000/api/auth/add-hr-manager'
-        : 'http://localhost:3000/api/auth/add-hr-staff'
+                  ? API_ENDPOINTS.ADD_HR_MANAGER || '/api/auth/add-hr-manager'
+          : API_ENDPOINTS.ADD_HR_STAFF || '/api/auth/add-hr-staff'
 
-      // Send to backend API
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          full_name: formData.full_name,
-          email: formData.email,
-          password: formData.password
-        })
+      // Send to backend API using apiService
+      const response = await apiService.post(endpoint, {
+        full_name: formData.full_name,
+        email: formData.email,
+        password: formData.password
       })
 
-      const result = await response.json()
+      const result = response.data
 
-      if (!response.ok) {
+      if (response.status !== 201) { // 201 Created
         if (response.status === 401) {
           // Token expired or invalid
           localStorage.removeItem('token')

@@ -141,6 +141,18 @@ app.use('/api/salary', salaryRoutes)
 app.use('/api/working-days', workingDaysRoutes)
 app.use('/api/company-calendar', companyCalendarRoutes)
 
+// Debug: Log all registered routes
+console.log('🔍 Registered API Routes:')
+console.log('  - /api/auth')
+console.log('  - /api/users') 
+console.log('  - /api/documents')
+console.log('  - /api/leaves')
+console.log('  - /api/team-lead')
+console.log('  - /api/hr-manager')
+console.log('  - /api/salary')
+console.log('  - /api/working-days')
+console.log('  - /api/company-calendar')
+
 // Email routes (if available)
 if (emailRoutes) {
   app.use('/api/email', emailRoutes)
@@ -197,4 +209,4 @@ if (process.env.NODE_ENV !== 'production' || process.env.VERCEL !== '1') {
     console.log(`📊 Health check available at: http://localhost:${PORT}/health`)
     console.log(`🔗 API base URL: http://localhost:${PORT}/api`)
   })
-} 
+}

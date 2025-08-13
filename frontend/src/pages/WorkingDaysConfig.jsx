@@ -1,18 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { 
-  Calendar, 
-  Clock, 
-  Save, 
-  RefreshCw,
-  CheckCircle,
-  AlertCircle,
-  Info
-} from 'lucide-react'
+import { apiService, API_ENDPOINTS } from '../config/api'
+import { Calendar, Clock, Save, TestTube, ArrowLeft, Settings } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
 export default function WorkingDaysConfig() {
-  const { user, API_BASE_URL } = useAuth()
+  const navigate = useNavigate()
+  const { user } = useAuth()
   const [config, setConfig] = useState({
     working_days_per_week: 5,
     working_hours_per_day: 8.00,
@@ -40,11 +35,7 @@ export default function WorkingDaysConfig() {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/working-days/config`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const response = await apiService.get(API_ENDPOINTS.WORKING_DAYS_CONFIG)
 
       if (response.ok) {
         const data = await response.json()
@@ -107,14 +98,7 @@ export default function WorkingDaysConfig() {
         throw new Error('Authentication token not found')
       }
 
-      const response = await fetch(`${API_BASE_URL}/working-days/config`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(config)
-      })
+      const response = await apiService.put(API_ENDPOINTS.WORKING_DAYS_CONFIG, config)
 
       const result = await response.json()
 
@@ -140,11 +124,7 @@ export default function WorkingDaysConfig() {
         throw new Error('Authentication token not found')
       }
 
-      const response = await fetch(`${API_BASE_URL}/working-days/calculate?month=${testMonth}&year=${testYear}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const response = await apiService.get(`${API_ENDPOINTS.WORKING_DAYS_CALCULATE}?month=${testMonth}&year=${testYear}`)
 
       const result = await response.json()
 
@@ -257,7 +237,7 @@ export default function WorkingDaysConfig() {
               >
                 {saving ? (
                   <>
-                    <RefreshCw className="animate-spin -ml-1 mr-2 h-4 w-4" />
+                    <TestTube className="animate-spin -ml-1 mr-2 h-4 w-4" />
                     Saving...
                   </>
                 ) : (
@@ -341,7 +321,7 @@ export default function WorkingDaysConfig() {
             {/* Information */}
             <div className="mt-8 p-4 bg-blue-50 rounded-lg">
               <div className="flex">
-                <Info className="h-5 w-5 text-blue-400 mt-0.5" />
+                <Settings className="h-5 w-5 text-blue-400 mt-0.5" />
                 <div className="ml-3">
                   <h3 className="text-sm font-medium text-blue-800">How it works</h3>
                   <div className="mt-2 text-sm text-blue-700">
