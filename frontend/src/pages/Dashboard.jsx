@@ -102,7 +102,7 @@ const Dashboard = () => {
         // Fetch pending leave requests
         let pendingLeaveRequests = 0
         try {
-          const leaveResponse = await apiService.get(API_ENDPOINTS.LEAVES + '/requests?status=pending')
+          const leaveResponse = await apiService.get(API_ENDPOINTS.LEAVE_REQUESTS + '?status=pending')
           if (leaveResponse.status === 200) {
             const leaveData = leaveResponse.data
             pendingLeaveRequests = Array.isArray(leaveData) ? leaveData.length : 0

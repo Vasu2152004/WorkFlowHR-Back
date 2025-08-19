@@ -23,7 +23,10 @@ const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
+
+
     if (!token) {
+      console.log('❌ No token provided');
       return res.status(401).json({ error: 'Access token required' });
     }
 
@@ -99,8 +102,11 @@ const authenticateToken = async (req, res, next) => {
       req.user = userData;
     }
 
+
+
     next();
   } catch (error) {
+    console.error('❌ Authentication error:', error);
     if (error.code === 'UND_ERR_CONNECT_TIMEOUT' || error.message.includes('timeout')) {
       return res.status(503).json({ error: 'Service temporarily unavailable. Please try again.' });
     }
@@ -168,6 +174,8 @@ const validateEmployeeAccess = async (req, res, next) => {
   try {
     const user = req.user;
     const employeeId = req.params.id;
+
+
 
     if (!employeeId) {
       return next(); // No specific employee ID, let the controller handle it

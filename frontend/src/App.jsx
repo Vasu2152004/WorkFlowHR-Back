@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard'
 import EmployeeDashboard from './pages/EmployeeDashboard'
 import Employees from './pages/Employees'
 import AddEmployee from './pages/AddEmployee'
+import EditEmployee from './pages/EditEmployee'
 import AddHRStaff from './pages/AddHRStaff'
 import Profile from './pages/Profile'
 import CompanyProfile from './pages/CompanyProfile'
@@ -80,6 +81,14 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <AddEmployee />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/edit-employee/:id" element={
+            <ProtectedRoute>
+              <Layout>
+                <EditEmployee />
               </Layout>
             </ProtectedRoute>
           } />

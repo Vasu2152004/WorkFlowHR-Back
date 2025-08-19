@@ -124,14 +124,45 @@ const calculateLeaveImpact = async (employeeId, month, year) => {
     const endDate = new Date(year, month, 0);
 
     // Get unpaid leave requests for the month
+    // First, get all leave types to identify which ones are unpaid
+    const { data: leaveTypes, error: typesError } = await supabaseAdmin
+      .from('leave_types')
+      .select('id, name, is_paid')
+      .eq('is_paid', false); // Get all unpaid leave types
+    
+    let unpaidLeaveTypeIds = ['550e8400-e29b-41d4-a716-446655440003']; // Personal Leave fallback
+    
+    if (typesError) {
+      console.warn('⚠️ Could not fetch leave types, using fallback logic');
+      // Fallback: use hardcoded unpaid leave type IDs
+    } else {
+      // Get IDs of all unpaid leave types
+      unpaidLeaveTypeIds = leaveTypes.map(lt => lt.id);
+      console.log('🔍 Unpaid leave types found:', leaveTypes.map(lt => ({ name: lt.name, id: lt.id })));
+      
+      if (unpaidLeaveTypeIds.length === 0) {
+        console.log('⚠️ No unpaid leave types found, using fallback');
+        unpaidLeaveTypeIds = ['550e8400-e29b-41d4-a716-446655440003']; // Personal Leave fallback
+      }
+    }
+    
+    // Get unpaid leave requests for the month
     const { data: unpaidLeaves, error: leaveError } = await supabaseAdmin
       .from('leave_requests')
-      .select('total_days, leave_type_id')
+      .select(`
+        total_days, 
+        leave_type_id,
+        leave_types (
+          id,
+          name,
+          is_paid
+        )
+      `)
       .eq('employee_id', employeeId)
       .eq('status', 'approved_by_hr')
       .gte('start_date', startDate.toISOString().split('T')[0])
       .lte('end_date', endDate.toISOString().split('T')[0])
-      .in('leave_type_id', ['550e8400-e29b-41d4-a716-446655440003']); // Only personal leave is unpaid
+      .in('leave_type_id', unpaidLeaveTypeIds);
 
     if (leaveError) {
       // If table doesn't exist, continue with no leaves
@@ -143,6 +174,17 @@ const calculateLeaveImpact = async (employeeId, month, year) => {
 
     // Calculate total unpaid days
     const totalUnpaidDays = unpaidLeaves?.reduce((sum, leave) => sum + (leave.total_days || 0), 0) || 0;
+    
+    // Log detailed unpaid leave information
+    console.log('🔍 Unpaid leave calculation details:', {
+      employeeId,
+      month,
+      year,
+      unpaidLeaves: unpaidLeaves || [],
+      totalUnpaidDays,
+      employeeSalary: employee.salary,
+      dailySalaryRate: employee.salary / 12 / 30
+    });
 
     // Calculate daily salary rate based on 30 days (not working days)
     // This ensures consistent salary calculation regardless of working days
@@ -150,6 +192,13 @@ const calculateLeaveImpact = async (employeeId, month, year) => {
 
     // Calculate leave impact
     const leaveImpact = totalUnpaidDays * dailySalaryRate;
+    
+    console.log('💰 Leave impact calculation:', {
+      totalUnpaidDays,
+      dailySalaryRate,
+      leaveImpact,
+      message: `Deducting ₹${leaveImpact.toFixed(2)} for ${totalUnpaidDays} unpaid leave days`
+    });
 
     // Store leave impact for future reference (optional)
     try {
@@ -177,13 +226,121 @@ const calculateLeaveImpact = async (employeeId, month, year) => {
   }
 };
 
+// Regenerate salary slip for a specific month (useful when unpaid leave is approved after salary generation)
+const regenerateSalarySlip = async (req, res) => {
+  try {
+    const { employee_id, month, year } = req.body
+    const currentUser = req.user
+
+    console.log('🔄 regenerateSalarySlip called with:', {
+      employee_id,
+      month,
+      year,
+      user: { id: currentUser.id, role: currentUser.role, company_id: currentUser.company_id }
+    })
+
+    // Check if user has permission
+    if (!['admin', 'hr_manager', 'hr'].includes(currentUser.role)) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    // Validate required fields
+    if (!employee_id || !month || !year) {
+      return res.status(400).json({ error: 'Employee ID, month, and year are required' })
+    }
+
+    // Ensure month and year are numbers
+    const monthNum = parseInt(month)
+    const yearNum = parseInt(year)
+
+    if (isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+      return res.status(400).json({ error: 'Month must be between 1 and 12' })
+    }
+
+    if (isNaN(yearNum) || yearNum < 2020 || yearNum > 2030) {
+      return res.status(400).json({ error: 'Year must be between 2020 and 2030' })
+    }
+
+    // Check if salary slip exists for this month
+    const { data: existingSlip, error: checkError } = await supabaseAdmin
+      .from('salary_slips')
+      .select('id, net_salary, gross_salary')
+      .eq('employee_id', employee_id)
+      .eq('month', monthNum)
+      .eq('year', yearNum)
+      .single()
+
+    if (!existingSlip) {
+      return res.status(404).json({ error: 'Salary slip not found for this month' })
+    }
+
+    console.log('🔄 Regenerating salary slip for existing slip:', existingSlip.id)
+
+    // Delete the existing salary slip and details
+    const { error: deleteDetailsError } = await supabaseAdmin
+      .from('salary_slip_details')
+      .delete()
+      .eq('salary_slip_id', existingSlip.id)
+
+    if (deleteDetailsError) {
+      console.error('❌ Error deleting salary slip details:', deleteDetailsError)
+      return res.status(500).json({ error: 'Failed to delete existing salary slip details' })
+    }
+
+    const { error: deleteSlipError } = await supabaseAdmin
+      .from('salary_slips')
+      .delete()
+      .eq('id', existingSlip.id)
+
+    if (deleteSlipError) {
+      console.error('❌ Error deleting salary slip:', deleteSlipError)
+      return res.status(500).json({ error: 'Failed to delete existing salary slip' })
+    }
+
+    console.log('✅ Existing salary slip deleted, regenerating with updated leave information...')
+
+    // Now call the original generateSalarySlip function
+    // We'll reuse the existing logic by calling it recursively
+    const regenerateReq = {
+      body: { employee_id, month: monthNum, year: yearNum, additions: [], deductions: [], notes: 'Regenerated due to unpaid leave approval' },
+      user: currentUser
+    }
+
+    // Call the generateSalarySlip function
+    const result = await generateSalarySlip(regenerateReq, res)
+    
+    if (result) {
+      console.log('✅ Salary slip regenerated successfully with updated unpaid leave deductions')
+    }
+
+  } catch (error) {
+    console.error('❌ Regenerate salary slip error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+}
+
 // Get unpaid leave days for a specific month (for salary calculation)
 const getUnpaidLeaveDaysForMonth = async (employeeId, month, year) => {
   try {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0);
 
-    // Get unpaid leave requests for the month (only personal leave is unpaid)
+    // Get unpaid leave requests for the month
+    // First, get all leave types to identify which ones are unpaid
+    const { data: leaveTypes, error: typesError } = await supabaseAdmin
+      .from('leave_types')
+      .select('id, name, is_paid')
+      .eq('is_paid', false); // Get all unpaid leave types
+    
+    let unpaidLeaveTypeIds = ['550e8400-e29b-41d4-a716-446655440003']; // Personal Leave fallback
+    
+    if (!typesError && leaveTypes && leaveTypes.length > 0) {
+      // Get IDs of all unpaid leave types
+      unpaidLeaveTypeIds = leaveTypes.map(lt => lt.id);
+      console.log('🔍 Unpaid leave types for month calculation:', leaveTypes.map(lt => ({ name: lt.name, id: lt.id })));
+    }
+    
+    // Get unpaid leave requests for the month
     const { data: unpaidLeaves, error } = await supabaseAdmin
       .from('leave_requests')
       .select('total_days')
@@ -191,7 +348,7 @@ const getUnpaidLeaveDaysForMonth = async (employeeId, month, year) => {
       .eq('status', 'approved_by_hr')
       .gte('start_date', startDate.toISOString().split('T')[0])
       .lte('end_date', endDate.toISOString().split('T')[0])
-      .in('leave_type_id', ['550e8400-e29b-41d4-a716-446655440003']); // Only personal leave is unpaid
+      .in('leave_type_id', unpaidLeaveTypeIds);
 
     if (error) {
       console.error('❌ Error fetching unpaid leave days:', error);
@@ -640,6 +797,43 @@ const addEmployeeFixedDeduction = async (req, res) => {
       return res.status(400).json({ error: 'Percentage is required for percentage deductions' });
     }
 
+    // Check if a deduction with the same name already exists for this employee
+    const { data: existingDeduction, error: checkError } = await supabaseAdmin
+      .from('employee_fixed_deductions')
+      .select('id, deduction_name, amount, percentage, is_active')
+      .eq('employee_id', employee_id)
+      .eq('deduction_name', deduction_name)
+      .single();
+
+    if (existingDeduction) {
+      // If deduction exists, update it instead of creating a duplicate
+      const updateData = {
+        deduction_type,
+        amount: amount || 0,
+        percentage: percentage || 0,
+        description,
+        is_active: true,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: updatedDeduction, error: updateError } = await supabaseAdmin
+        .from('employee_fixed_deductions')
+        .update(updateData)
+        .eq('id', existingDeduction.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        return res.status(500).json({ error: updateError.message });
+      }
+
+      return res.json({
+        message: 'Fixed deduction updated successfully (replaced existing deduction with same name)',
+        deduction: updatedDeduction
+      });
+    }
+
+    // If no existing deduction, create a new one
     const { data: deduction, error } = await supabaseAdmin
       .from('employee_fixed_deductions')
       .insert([{
@@ -1012,5 +1206,6 @@ module.exports = {
   getMySalarySlipDetails,
   downloadMySalarySlip,
   downloadSalarySlip,
-  getUnpaidLeaveDaysForMonth
+  getUnpaidLeaveDaysForMonth,
+  regenerateSalarySlip
 }; 

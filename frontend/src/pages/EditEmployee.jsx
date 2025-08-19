@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useNavigate } from 'react-router-dom'
-import { User, Mail, Building, Briefcase, DollarSign, Calendar, Phone, MapPin, FileText, ArrowLeft, Plus, CheckCircle, AlertCircle } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { User, Mail, Building, Briefcase, DollarSign, Calendar, Phone, MapPin, FileText, ArrowLeft, Save, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiService, API_ENDPOINTS } from '../config/api'
 
-export default function AddEmployee() {
+export default function EditEmployee() {
   const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const { id } = useParams()
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -23,6 +24,7 @@ export default function AddEmployee() {
     leave_balance: '10'
   })
   const [loading, setLoading] = useState(false)
+  const [fetching, setFetching] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -67,22 +69,63 @@ export default function AddEmployee() {
   // Check authentication on component mount
   useEffect(() => {
     if (!isAuthenticated || !user) {
-      toast.error('Please login to create employees')
+      toast.error('Please login to edit employees')
       navigate('/login')
       return
     }
 
-      // Check if user has permission to add employees
-  if (!['admin', 'hr_manager', 'hr'].includes(user.role)) {
-    toast.error('Only Admin, HR Manager, and HR can create employees')
-    navigate('/dashboard')
-    return
-  }
+    // Check if user has permission to edit employees
+    if (!['admin', 'hr_manager', 'hr'].includes(user.role)) {
+      toast.error('Only Admin, HR Manager, and HR can edit employees')
+      navigate('/dashboard')
+      return
+    }
   }, [isAuthenticated, user, navigate])
+
+  // Fetch employee data on component mount
+  useEffect(() => {
+    if (id && isAuthenticated && user) {
+      fetchEmployeeData()
+    }
+  }, [id, isAuthenticated, user])
 
   // If not authenticated, don't render the component
   if (!isAuthenticated || !user || !['admin', 'hr_manager', 'hr'].includes(user.role)) {
     return null
+  }
+
+  const fetchEmployeeData = async () => {
+    try {
+      setFetching(true)
+      const response = await apiService.get(API_ENDPOINTS.EMPLOYEE_BY_ID(id))
+      
+      if (response.status === 200) {
+        const employeeData = response.data.employee
+        setFormData({
+          full_name: employeeData.full_name || '',
+          email: employeeData.email || '',
+          department: employeeData.department || '',
+          designation: employeeData.designation || '',
+          salary: employeeData.salary?.toString() || '',
+          joining_date: employeeData.joining_date || '',
+          phone_number: employeeData.phone_number || '',
+          address: employeeData.address || '',
+          emergency_contact: employeeData.emergency_contact || '',
+          pan_number: employeeData.pan_number || '',
+          bank_account: employeeData.bank_account || '',
+          leave_balance: employeeData.leave_balance?.toString() || '10'
+        })
+      } else {
+        toast.error('Failed to fetch employee data')
+        navigate('/employees')
+      }
+    } catch (error) {
+      console.error('Error fetching employee data:', error)
+      toast.error('Failed to fetch employee data')
+      navigate('/employees')
+    } finally {
+      setFetching(false)
+    }
   }
 
   const handleInputChange = (e) => {
@@ -93,109 +136,34 @@ export default function AddEmployee() {
     }))
   }
 
-  const generateEmployeeId = () => {
-    const timestamp = Date.now().toString().slice(-6)
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
-    return `EMP${timestamp}${random}`
-  }
-
-  const validateForm = () => {
-    if (!formData.full_name.trim()) {
-      setError('Full name is required')
-      toast.error('Full name is required')
-      return false
-    }
-    if (!formData.email.trim()) {
-      setError('Email is required')
-      toast.error('Email is required')
-      return false
-    }
-    if (!formData.department) {
-      setError('Department is required')
-      toast.error('Department is required')
-      return false
-    }
-    if (!formData.designation) {
-      setError('Designation is required')
-      toast.error('Designation is required')
-      return false
-    }
-    if (!formData.salary) {
-      setError('Salary is required')
-      toast.error('Salary is required')
-      return false
-    }
-    if (!formData.joining_date) {
-      setError('Joining date is required')
-      toast.error('Joining date is required')
-      return false
-    }
-    return true
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setLoading(true)
-    setError('')
-    setSuccess('')
+    
+    if (loading) return
 
     try {
-      // Validate form
-      if (!validateForm()) {
-        return
-      }
+      setLoading(true)
+      setError('')
+      setSuccess('')
 
-      // Create employee data
-      const employeeData = {
-        full_name: formData.full_name,
-        email: formData.email,
-        department: formData.department,
-        designation: formData.designation,
-        salary: parseFloat(formData.salary),
-        joining_date: formData.joining_date,
-        phone_number: formData.phone_number || null,
-        address: formData.address || null,
-        emergency_contact: formData.emergency_contact || null,
-        pan_number: formData.pan_number || null,
-        bank_account: formData.bank_account || null,
-        leave_balance: parseInt(formData.leave_balance)
-      }
-
-      // Send to backend API using apiService
-      const response = await apiService.post(API_ENDPOINTS.USERS + '/employees', employeeData)
-
-      if (response.status === 201 || response.status === 200) {
-        const result = response.data
-
-        // Show success message with credentials
-        setSuccess(`Employee created successfully! 
-          Employee ID: ${result.employee.employee_id}
-          Password: ${result.employee.password}
-          Email sent to: ${result.employee.email}`)
-
-        // Reset form
-        setFormData({
-          full_name: '',
-          email: '',
-          department: '',
-          designation: '',
-          salary: '',
-          joining_date: '',
-          phone_number: '',
-          address: '',
-          emergency_contact: '',
-          pan_number: '',
-          bank_account: '',
-          leave_balance: '20'
-        })
-
-        // Show toast notification
-        toast.success('Employee created successfully! Welcome email sent.')
+      console.log('Submitting form data:', formData)
+      const response = await apiService.put(API_ENDPOINTS.EMPLOYEE_BY_ID(id), formData)
+      
+      if (response.status === 200) {
+        setSuccess('Employee updated successfully!')
+        toast.success('Employee updated successfully!')
+        
+        // Redirect to employees page after a short delay
+        setTimeout(() => {
+          navigate('/employees')
+        }, 1500)
       } else {
-        throw new Error('Failed to create employee')
+        setError(response.data?.error || 'Failed to update employee')
+        toast.error(response.data?.error || 'Failed to update employee')
       }
-
     } catch (error) {
+      console.error('Error updating employee:', error)
+      
       if (error.response?.status === 401) {
         // Token expired or invalid
         localStorage.removeItem('access_token')
@@ -203,8 +171,25 @@ export default function AddEmployee() {
         navigate('/login')
         return
       }
-      setError(error.message || 'Failed to create employee')
-      toast.error(error.message || 'Failed to create employee')
+      
+      // Handle validation errors
+      if (error.response?.status === 400) {
+        const errorMessage = error.response.data?.error || 'Validation failed. Please check your input.'
+        const errorDetails = error.response.data?.details || []
+        
+        if (errorDetails.length > 0) {
+          const detailedMessage = errorDetails.map(err => `${err.param}: ${err.msg}`).join(', ')
+          setError(`Validation failed: ${detailedMessage}`)
+          toast.error(`Validation failed: ${detailedMessage}`)
+        } else {
+          setError(errorMessage)
+          toast.error(errorMessage)
+        }
+        return
+      }
+      
+      setError(error.message || 'Failed to update employee')
+      toast.error(error.message || 'Failed to update employee')
     } finally {
       setLoading(false)
     }
@@ -212,6 +197,17 @@ export default function AddEmployee() {
 
   const handleBack = () => {
     navigate('/employees')
+  }
+
+  if (fetching) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <span className="ml-2 text-gray-600">Loading employee data...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -227,8 +223,8 @@ export default function AddEmployee() {
               >
                 <ArrowLeft className="h-5 w-5 text-gray-600 dark:text-gray-300" />
               </button>
-              <Plus className="h-8 w-8 text-blue-600" />
-              <h1 className="ml-3 text-2xl font-bold text-gray-900 dark:text-white">Add New Employee</h1>
+              <User className="h-8 w-8 text-blue-600" />
+              <h1 className="ml-3 text-2xl font-bold text-gray-900 dark:text-white">Edit Employee</h1>
             </div>
           </div>
         </div>
@@ -237,11 +233,30 @@ export default function AddEmployee() {
       <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Add New Employee</h2>
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Edit Employee</h2>
             <p className="text-gray-600 dark:text-gray-400">
-              Create a new employee account with login credentials
+              Update employee information and settings
             </p>
           </div>
+
+          {/* Success/Error Messages */}
+          {success && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                <span className="text-green-800">{success}</span>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center">
+                <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+                <span className="text-red-800">{error}</span>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Required Information */}
@@ -386,7 +401,7 @@ export default function AddEmployee() {
 
                 <div>
                   <label htmlFor="leave_balance" className="form-label">
-                    Leave Balance
+                    Leave Balance (Days)
                   </label>
                   <input
                     type="number"
@@ -458,7 +473,7 @@ export default function AddEmployee() {
                     name="bank_account"
                     value={formData.bank_account}
                     onChange={handleInputChange}
-                    rows="2"
+                    rows="3"
                     className="input-field"
                     placeholder="Enter bank account details"
                   />
@@ -466,50 +481,36 @@ export default function AddEmployee() {
               </div>
             </div>
 
-            {error && (
-              <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <div className="flex items-center">
-                  <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
-                  <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-                </div>
-              </div>
-            )}
-
-            {success && (
-              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                <div className="flex items-center mb-2">
-                  <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
-                  <p className="text-sm text-green-600 dark:text-green-400">{success}</p>
-                </div>
-                <div className="text-xs text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-800 p-3 rounded">
-                  <p><strong>Next Steps:</strong></p>
-                  <p>1. Welcome email has been sent to the employee</p>
-                  <p>2. Employee can login using their email and system-generated password</p>
-                  <p>3. Employee should change password after first login</p>
-                </div>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-            >
-              {loading ? (
-                <>
-                  <div className="loading-spinner h-4 w-4 mr-2"></div>
-                  Creating Employee Account...
-                </>
-              ) : (
-                <>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Employee Account
-                </>
-              )}
-            </button>
+            {/* Form Actions */}
+            <div className="flex justify-end space-x-4 pt-6">
+              <button
+                type="button"
+                onClick={handleBack}
+                className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center"
+              >
+                {loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Update Employee
+                  </>
+                )}
+              </button>
+            </div>
           </form>
         </div>
       </main>
     </div>
   )
-} 
+}

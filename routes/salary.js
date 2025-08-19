@@ -42,6 +42,7 @@ router.post('/components', requireHR, validateAddSalaryComponent, salaryControll
 
 // Salary slip routes
 router.post('/generate', requireHR, validateGenerateSalarySlip, salaryController.generateSalarySlip);
+router.post('/regenerate', requireHR, salaryController.regenerateSalarySlip); // New route for regenerating salary slips
 router.get('/employee/:employee_id', requireHR, salaryController.getEmployeeSalarySlips);
 router.get('/my-slips', salaryController.getMySalarySlips); // New route for employees to view their own slips
 router.get('/slip/:slip_id', requireHR, salaryController.getSalarySlipDetails);

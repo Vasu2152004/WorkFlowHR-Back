@@ -1,5 +1,5 @@
 const express = require('express');
-const { body } = require('express-validator');
+const { body, validationResult } = require('express-validator');
 const { 
   authenticateToken, 
   requireHR, 
@@ -13,19 +13,73 @@ const { supabaseAdmin } = require('../config/supabase');
 
 const router = express.Router();
 
+// Test route without authentication for debugging
+router.get('/test-public', (req, res) => {
+  res.json({
+    message: 'Public test endpoint is working!',
+    timestamp: new Date().toISOString(),
+    method: req.method,
+    path: req.path,
+    headers: req.headers
+  });
+});
+
+// Test route to check if routes are working at all
+router.get('/test-route', (req, res) => {
+  res.json({
+    message: 'Route is working!',
+    timestamp: new Date().toISOString(),
+    method: req.method,
+    path: req.path,
+    url: req.url,
+    baseUrl: req.baseUrl,
+    originalUrl: req.originalUrl
+  });
+});
+
+// Validation error handler middleware
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ 
+      error: errors.array()[0].msg || 'Validation failed',
+      details: errors.array()
+    });
+  }
+  next();
+};
+
 // Validation middleware
 const validateAddEmployee = [
   body('email').isEmail().normalizeEmail(),
   body('full_name').trim().isLength({ min: 2 }),
-  body('department').trim().isLength({ min: 2 }),
-  body('designation').trim().isLength({ min: 2 }),
-  body('salary').isNumeric(),
-  body('joining_date').isDate()
+  body('department').trim().notEmpty().withMessage('Department is required'),
+  body('designation').trim().notEmpty().withMessage('Designation is required'),
+  body('salary').isFloat({ min: 0 }).withMessage('Salary must be a positive number'),
+  body('joining_date').isDate().withMessage('Valid joining date is required'),
+  body('phone_number').optional().trim(),
+  body('address').optional().trim(),
+  body('emergency_contact').optional().trim(),
+  body('pan_number').optional().trim(),
+  body('bank_account').optional().trim(),
+  body('leave_balance').optional().isInt({ min: 0, max: 365 }).withMessage('Leave balance must be between 0 and 365 days'),
+  handleValidationErrors
 ];
 
 const validateUpdateEmployee = [
   body('email').isEmail().normalizeEmail(),
-  body('full_name').trim().isLength({ min: 2 })
+  body('full_name').trim().isLength({ min: 2 }),
+  body('department').trim().notEmpty().withMessage('Department is required'),
+  body('designation').trim().notEmpty().withMessage('Designation is required'),
+  body('salary').isFloat({ min: 0 }).withMessage('Salary must be a positive number'),
+  body('joining_date').isDate().withMessage('Valid joining date is required'),
+  body('phone_number').optional().trim(),
+  body('address').optional().trim(),
+  body('emergency_contact').optional().trim(),
+  body('pan_number').optional().trim(),
+  body('bank_account').optional().trim(),
+  body('leave_balance').optional().isInt({ min: 0, max: 365 }).withMessage('Leave balance must be between 0 and 365 days'),
+  handleValidationErrors
 ];
 
 const validateUpdateCompanyProfile = [
@@ -51,12 +105,15 @@ const validateUpdateCompanyProfile = [
     return true;
   }),
   body('phone').optional().trim(),
-  body('address').optional().trim()
+  body('address').optional().trim(),
+  handleValidationErrors
 ];
 
 // Apply authentication to all routes
 router.use(authenticateToken);
 router.use(validateCompanyAccess);
+
+
 
 // Test endpoint for development (returns mock data)
 router.get('/test', (req, res) => {
@@ -64,6 +121,21 @@ router.get('/test', (req, res) => {
     message: 'API is working!',
     user: req.user,
     timestamp: new Date().toISOString()
+  });
+});
+
+// Simple health check for users route
+router.get('/health', (req, res) => {
+  res.json({
+    message: 'Users route is working!',
+    timestamp: new Date().toISOString(),
+    routes: [
+      'GET /employees',
+      'GET /employees/:id',
+      'PUT /employees/:id',
+      'POST /employees',
+      'DELETE /employees/:id'
+    ]
   });
 });
 
@@ -266,5 +338,45 @@ router.get('/employees/:id', validateEmployeeAccess, userController.getEmployee)
 router.put('/employees/:id', requireHR, validateEmployeeAccess, validateUpdateEmployee, userController.updateEmployee);
 router.delete('/employees/:id', requireHR, validateEmployeeAccess, userController.deleteEmployee);
 router.post('/employees/:id/reset-password', requireHR, validateEmployeeAccess, userController.resetEmployeePassword);
+
+// Role management endpoint (for fixing user roles)
+router.post('/fix-role', authenticateToken, async (req, res) => {
+  try {
+    const currentUser = req.user;
+    const { role } = req.body;
+    
+    // Validate role
+    if (!['hr', 'hr_manager', 'admin', 'employee', 'team_lead'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role. Allowed roles: hr, hr_manager, admin, employee, team_lead' });
+    }
+    
+    // Update the current user's role
+    const { data: updatedUser, error } = await supabaseAdmin
+      .from('users')
+      .update({ role })
+      .eq('id', currentUser.id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('❌ Role update error:', error);
+      return res.status(500).json({ error: 'Failed to update role' });
+    }
+    
+    console.log('✅ Role updated successfully:', { 
+      userId: currentUser.id, 
+      oldRole: currentUser.role, 
+      newRole: role 
+    });
+    
+    res.json({ 
+      message: 'Role updated successfully',
+      user: updatedUser 
+    });
+  } catch (error) {
+    console.error('❌ Fix role endpoint error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 module.exports = router; 

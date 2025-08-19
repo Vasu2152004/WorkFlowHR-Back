@@ -16,7 +16,7 @@ const addEmployee = async (req, res) => {
       emergency_contact,
       pan_number,
       bank_account,
-      leave_balance = 20,
+      leave_balance = 10,
       team_lead_id = null // New field for team lead assignment
     } = req.body;
     
@@ -108,7 +108,7 @@ const addEmployee = async (req, res) => {
       emergency_contact: emergency_contact || null,
       pan_number: pan_number || null,
       bank_account: bank_account || null,
-      leave_balance: parseInt(leave_balance),
+              leave_balance: parseInt(leave_balance) || 10,
       created_by: currentUser.id, // Track who created this employee
       team_lead_id: team_lead_id, // Team lead assignment
       company_id: currentUser.company_id
@@ -272,11 +272,7 @@ const getEmployee = async (req, res) => {
     // Build query with role-based access
     let query = supabaseAdmin
       .from('employees')
-      .select(`
-        *,
-        users!inner(full_name, email, role, company_id),
-        team_lead:users!employees_team_lead_id_fkey(full_name, email)
-      `)
+      .select('*')
       .eq('id', id);
 
     // Apply role-based filtering
@@ -285,13 +281,13 @@ const getEmployee = async (req, res) => {
       query = query.eq('created_by', currentUser.id);
     } else if (currentUser.role === 'hr_manager') {
       // HR Manager can see all employees in their company
-      query = query.eq('users.company_id', currentUser.company_id);
+      query = query.eq('company_id', currentUser.company_id);
     } else if (currentUser.role === 'team_lead') {
       // Team Lead can see their team members
       query = query.eq('team_lead_id', currentUser.id);
     } else if (currentUser.role === 'admin') {
       // Admin can only see employees in their company
-      query = query.eq('users.company_id', currentUser.company_id);
+      query = query.eq('company_id', currentUser.company_id);
     } else if (currentUser.role === 'employee') {
       // Employee can only see their own data
       query = query.eq('user_id', currentUser.id);
@@ -380,7 +376,7 @@ const updateEmployee = async (req, res) => {
         emergency_contact: emergency_contact || null,
         pan_number: pan_number || null,
         bank_account: bank_account || null,
-        leave_balance: parseInt(leave_balance) || 20
+        leave_balance: parseInt(leave_balance) || 10
       })
       .eq('id', id)
       .select('*')

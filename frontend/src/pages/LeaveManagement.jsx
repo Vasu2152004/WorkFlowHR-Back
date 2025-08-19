@@ -16,6 +16,7 @@ const LeaveManagement = () => {
   const [remarks, setRemarks] = useState('')
   const [error, setError] = useState(null)
   const [initialLoading, setInitialLoading] = useState(true)
+  const [resettingBalances, setResettingBalances] = useState(false)
 
   // Check authentication
   if (!user) {
@@ -46,7 +47,7 @@ const LeaveManagement = () => {
       setError(null)
       console.log('🔄 Fetching leave requests...')
       
-      let url = API_ENDPOINTS.LEAVES + API_ENDPOINTS.LEAVE_REQUESTS
+      let url = API_ENDPOINTS.LEAVE_REQUESTS
       const params = new URLSearchParams()
       
       if (filterStatus) {
@@ -101,7 +102,7 @@ const LeaveManagement = () => {
     try {
       setError(null)
       console.log('🔄 Fetching leave types...')
-      const response = await apiService.get(API_ENDPOINTS.LEAVES + API_ENDPOINTS.LEAVE_TYPES)
+      const response = await apiService.get(API_ENDPOINTS.LEAVE_TYPES)
 
       if (response.status === 200) {
         const data = response.data
@@ -135,7 +136,7 @@ const LeaveManagement = () => {
     try {
       console.log('🔄 Updating leave request status:', { requestId, status })
       
-      const response = await apiService.put(`${API_ENDPOINTS.LEAVES}${API_ENDPOINTS.LEAVE_REQUESTS}/${requestId}`, {
+              const response = await apiService.put(`${API_ENDPOINTS.LEAVE_REQUESTS}/${requestId}`, {
         status,
         hr_remarks: status === 'rejected' ? remarks.trim() : null
       })
@@ -158,6 +159,36 @@ const LeaveManagement = () => {
       toast.error(error.message || 'Failed to update leave request')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResetLeaveBalances = async () => {
+    if (resettingBalances) return
+
+    const currentYear = new Date().getFullYear()
+    const nextYear = currentYear + 1
+    
+    if (!confirm(`Are you sure you want to reset leave balances for ${nextYear}? This will reset all employees' leave balances to their default values.`)) {
+      return
+    }
+
+    try {
+      setResettingBalances(true)
+      setError(null)
+      
+      const response = await apiService.post(API_ENDPOINTS.LEAVE_BALANCE_RESET(nextYear))
+      
+      if (response.status === 200) {
+        toast.success(`Leave balances reset successfully for ${nextYear}`)
+        console.log('✅ Leave balance reset response:', response.data)
+      } else {
+        throw new Error(response.data?.error || 'Failed to reset leave balances')
+      }
+    } catch (error) {
+      console.error('❌ Error resetting leave balances:', error)
+      toast.error(error.message || 'Failed to reset leave balances')
+    } finally {
+      setResettingBalances(false)
     }
   }
 
@@ -184,6 +215,25 @@ const LeaveManagement = () => {
               <h1 className="text-3xl font-bold text-gray-900">Leave Management</h1>
               <p className="text-gray-600 mt-1">Manage employee leave requests and approvals</p>
             </div>
+            {['hr_manager', 'admin'].includes(user.role) && (
+              <button
+                onClick={handleResetLeaveBalances}
+                disabled={resettingBalances}
+                className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                {resettingBalances ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Resetting...
+                  </>
+                ) : (
+                  <>
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Reset Leave Balances
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>

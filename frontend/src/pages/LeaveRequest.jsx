@@ -87,8 +87,24 @@ const LeaveRequest = () => {
       
       if (response.status === 200) {
         const data = response.data
-        setLeaveBalance(data.balances || [])
-        console.log('✅ Leave balance fetched successfully:', data)
+        const balances = data.balances || []
+        
+        // Deduplicate by leave_type_id to prevent duplicate tiles
+        const uniqueBalances = []
+        const seenLeaveTypes = new Set()
+        
+        balances.forEach(balance => {
+          if (!seenLeaveTypes.has(balance.leave_type_id)) {
+            seenLeaveTypes.add(balance.leave_type_id)
+            uniqueBalances.push(balance)
+          } else {
+            console.warn('⚠️ Duplicate leave type found:', balance.leave_type_name || balance.leave_type_id)
+          }
+        })
+        
+        console.log(`🔍 Deduplication: ${balances.length} → ${uniqueBalances.length} unique balances`)
+        setLeaveBalance(uniqueBalances)
+        console.log('✅ Leave balance fetched and deduplicated successfully:', uniqueBalances)
       }
     } catch (error) {
       console.error('❌ Error fetching leave balance:', error)
@@ -345,28 +361,219 @@ const LeaveRequest = () => {
         {/* Test button for debugging */}
         <button
           onClick={testEmployeeRecordCreation}
-          className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600"
+          className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 mr-2"
         >
           🧪 Test Employee Record
         </button>
+        
+        <button
+          onClick={async () => {
+            try {
+              console.log('🧹 One-time cleanup triggered...')
+              
+              // Get the current employee ID
+              let employeeId = formData.employee_id
+              if (!employeeId) {
+                // Try to find the current user's employee record
+                try {
+                  const employeeResponse = await apiService.get(`${API_ENDPOINTS.USERS}/employees/${user.id}`)
+                  if (employeeResponse.status === 200) {
+                    employeeId = employeeResponse.data.employee?.id || user.id
+                  } else {
+                    employeeId = user.id
+                  }
+                } catch (empError) {
+                  employeeId = user.id
+                }
+              }
+              
+              // Call the cleanup endpoint
+              const response = await apiService.post(API_ENDPOINTS.LEAVE_CLEANUP_DUPLICATES(employeeId))
+              
+              if (response.status === 200) {
+                const result = response.data
+                toast.success(`One-time cleanup completed! Removed ${result.cleaned} duplicate records.`)
+                console.log('✅ One-time cleanup result:', result)
+                
+                // Refresh leave balance after cleanup
+                setTimeout(() => {
+                  fetchLeaveBalance()
+                }, 1000)
+              }
+            } catch (error) {
+              console.error('❌ One-time cleanup failed:', error)
+              toast.error('One-time cleanup failed. Please try again.')
+            }
+          }}
+          className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+        >
+          🧹 One-time Cleanup
+        </button>
+        
+        <button
+          onClick={() => {
+            console.log('🔍 Current leave balance state:', leaveBalance)
+            console.log('🔍 Total records:', leaveBalance.length)
+            
+            // Group by leave type name to see actual duplicates
+            const groupedByName = leaveBalance.reduce((acc, b) => {
+              const name = b.leave_type_name || 'Unknown'
+              if (!acc[name]) acc[name] = []
+              acc[name].push(b)
+              return acc
+            }, {})
+            
+            console.log('🔍 Grouped by leave type name:', groupedByName)
+            
+            // Show duplicate counts by name
+            Object.entries(groupedByName).forEach(([name, records]) => {
+              if (records.length > 1) {
+                console.log(`⚠️ DUPLICATE: ${name} has ${records.length} records`)
+                records.forEach((record, index) => {
+                  console.log(`  ${index + 1}. ID: ${record.leave_type_id}, Total: ${record.total_days}, Used: ${record.used_days}`)
+                })
+              }
+            })
+            
+            // Show unique leave type IDs
+            const uniqueIds = [...new Set(leaveBalance.map(b => b.leave_type_id))]
+            console.log('🔍 Unique leave type IDs:', uniqueIds.length)
+            console.log('🔍 All leave type IDs:', uniqueIds)
+          }}
+          className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 ml-2"
+        >
+          📊 Debug Info
+        </button>
+        
+        <button
+          onClick={async () => {
+            try {
+              console.log('🧪 Testing API connection...')
+              
+              // Test health endpoint
+              const healthResponse = await fetch('/health')
+              console.log('🏥 Health check response:', healthResponse.status, healthResponse.statusText)
+              
+              if (healthResponse.ok) {
+                const healthData = await healthResponse.json()
+                console.log('✅ Health check data:', healthData)
+              }
+              
+              // Test API endpoint
+              const apiResponse = await fetch('/api/leaves/types')
+              console.log('🔗 API test response:', apiResponse.status, apiResponse.statusText)
+              
+              if (apiResponse.ok) {
+                const apiData = await apiResponse.json()
+                console.log('✅ API test data:', apiData)
+              } else {
+                console.error('❌ API test failed:', apiResponse.status, apiResponse.statusText)
+              }
+              
+              toast.success('API test completed. Check console for details.')
+            } catch (error) {
+              console.error('❌ API test error:', error)
+              toast.error('API test failed. Check console for details.')
+            }
+          }}
+          className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 ml-2"
+        >
+          🧪 Test API
+        </button>
+        
+        {/* Bulk cleanup button for HR users */}
+        {['hr', 'hr_manager', 'admin'].includes(user.role) && (
+          <button
+            onClick={async () => {
+              try {
+                if (!confirm('⚠️ This will clean up ALL duplicate leave balance records across ALL employees. This action cannot be undone. Continue?')) {
+                  return
+                }
+                
+                console.log('🧹 BULK cleanup triggered...')
+                toast.loading('Performing bulk cleanup...', { duration: 0 })
+                
+                const response = await apiService.post(API_ENDPOINTS.LEAVE_BULK_CLEANUP)
+                
+                if (response.status === 200) {
+                  const result = response.data
+                  toast.dismiss()
+                  toast.success(`BULK cleanup completed! Removed ${result.cleaned} duplicate records from ${result.totalGroupsWithDuplicates} groups.`)
+                  console.log('✅ Bulk cleanup result:', result)
+                  
+                  // Refresh leave balance after cleanup
+                  setTimeout(() => {
+                    fetchLeaveBalance()
+                  }, 2000)
+                }
+              } catch (error) {
+                toast.dismiss()
+                console.error('❌ Bulk cleanup failed:', error)
+                toast.error('Bulk cleanup failed. Please try again.')
+              }
+            }}
+            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 ml-2"
+          >
+            🧹 BULK Cleanup (HR Only)
+          </button>
+        )}
       </div>
       
-      {/* Leave Balance */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Leave Balance</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {leaveBalance.map((balance) => (
-            <div key={balance.leave_type_id} className="bg-gray-50 rounded-lg p-4">
-              <h3 className="font-medium text-gray-900">{balance.leave_type_name}</h3>
-              <div className="mt-2 text-sm text-gray-600">
-                <p>Total: {balance.total_days} days</p>
-                <p>Used: {balance.used_days} days</p>
-                <p className="font-semibold text-blue-600">Remaining: {balance.remaining_days} days</p>
+              {/* Leave Balance */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Leave Balance</h2>
+            {leaveBalance.length > 0 && (
+              <div className="text-sm text-gray-600 bg-yellow-50 px-3 py-2 rounded-md">
+                <span className="font-medium">Records:</span> {leaveBalance.length} 
+                {leaveBalance.length > 10 && (
+                  <span className="text-red-600 ml-2">⚠️ High duplicate count detected!</span>
+                )}
+              </div>
+            )}
+          </div>
+          
+          {/* Permanent Solution Info */}
+          {leaveBalance.length > 10 && (
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-blue-800">Permanent Solution Activated</h3>
+                  <div className="mt-2 text-sm text-blue-700">
+                    <p>✅ <strong>Automatic prevention:</strong> New duplicates are automatically prevented</p>
+                    <p>✅ <strong>Auto-cleanup:</strong> Existing duplicates are cleaned up automatically</p>
+                    <p>✅ <strong>No HR intervention needed:</strong> System maintains itself</p>
+                    <p className="mt-2">💡 <strong>Tip:</strong> Click "🧹 One-time Cleanup" to immediately clean up your current duplicates</p>
+                  </div>
+                </div>
               </div>
             </div>
-          ))}
+          )}
+          
+          {leaveBalance.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {leaveBalance.map((balance) => (
+                <div key={balance.leave_type_id} className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="font-medium text-gray-900">{balance.leave_type_name}</h3>
+                  <div className="mt-2 text-sm text-gray-600">
+                    <p>Total: {balance.total_days} days</p>
+                    <p>Used: {balance.used_days} days</p>
+                    <p className="font-semibold text-blue-600">Remaining: {balance.remaining_days} days</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              No leave balance information available
+            </div>
+          )}
         </div>
-      </div>
 
       {/* New Leave Request Form */}
       <div className="bg-white rounded-lg shadow-md p-6 mb-8">

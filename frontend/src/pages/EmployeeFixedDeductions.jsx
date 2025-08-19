@@ -28,7 +28,7 @@ export default function EmployeeFixedDeductions() {
     setLoading(true)
     try {
       // Fetch employee details
-      const employeeResponse = await apiService.get(`${API_ENDPOINTS.USER_BY_ID(employee_id)}`)
+      const employeeResponse = await apiService.get(`${API_ENDPOINTS.EMPLOYEE_BY_ID(employee_id)}`)
 
       if (employeeResponse.status === 200) {
         const employeeData = employeeResponse.data

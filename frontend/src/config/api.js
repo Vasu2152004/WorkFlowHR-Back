@@ -65,6 +65,7 @@ export const API_ENDPOINTS = {
   USERS: '/users',
   USER_BY_ID: (id) => `/users/${id}`,
   EMPLOYEES: '/users/employees',
+  EMPLOYEE_BY_ID: (id) => `/users/employees/${id}`,
   
   // Document endpoints
   DOCUMENTS: '/documents',
@@ -78,12 +79,16 @@ export const API_ENDPOINTS = {
   LEAVE_REQUESTS: '/leaves/requests',
   LEAVE_TYPES: '/leaves/types',
   LEAVE_BALANCE: '/leaves/balance',
+  LEAVE_BALANCE_RESET: (year) => `/leaves/reset-balances/${year}`,
+  LEAVE_CLEANUP_DUPLICATES: (employeeId) => `/leaves/cleanup-duplicates/${employeeId}`,
+  LEAVE_BULK_CLEANUP: '/leaves/bulk-cleanup-duplicates',
   EMPLOYEE_LEAVE_REQUESTS: '/leaves/employee-requests',
   
   // Salary endpoints
   SALARY: '/salary',
   SALARY_BY_ID: (id) => `/salary/${id}`,
   SALARY_SLIPS: '/salary/my-slips',
+  SALARY_REGENERATE: '/salary/regenerate',
   
   // Working days endpoints
   WORKING_DAYS: '/working-days',
