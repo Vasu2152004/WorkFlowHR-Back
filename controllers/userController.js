@@ -276,11 +276,8 @@ const getEmployee = async (req, res) => {
       .eq('id', id);
 
     // Apply role-based filtering
-    if (currentUser.role === 'hr') {
-      // HR can only see employees they created
-      query = query.eq('created_by', currentUser.id);
-    } else if (currentUser.role === 'hr_manager') {
-      // HR Manager can see all employees in their company
+    if (currentUser.role === 'hr' || currentUser.role === 'hr_manager') {
+      // HR and HR Manager can see all employees in their company
       query = query.eq('company_id', currentUser.company_id);
     } else if (currentUser.role === 'team_lead') {
       // Team Lead can see their team members
@@ -346,9 +343,8 @@ const updateEmployee = async (req, res) => {
       .eq('id', id);
 
     // Apply role-based filtering for access check
-    if (currentUser.role === 'hr') {
-      query = query.eq('created_by', currentUser.id);
-    } else if (currentUser.role === 'hr_manager') {
+    if (currentUser.role === 'hr' || currentUser.role === 'hr_manager') {
+      // HR and HR Manager can edit all employees in their company
       query = query.eq('company_id', currentUser.company_id);
     } else if (currentUser.role === 'admin') {
       // Admin can only access employees in their company
@@ -414,9 +410,8 @@ const deleteEmployee = async (req, res) => {
       .eq('id', id);
 
     // Apply role-based filtering for access check
-    if (currentUser.role === 'hr') {
-      query = query.eq('created_by', currentUser.id);
-    } else if (currentUser.role === 'hr_manager') {
+    if (currentUser.role === 'hr' || currentUser.role === 'hr_manager') {
+      // HR and HR Manager can delete all employees in their company
       query = query.eq('company_id', currentUser.company_id);
     } else if (currentUser.role === 'admin') {
       // Admin can only access employees in their company
@@ -472,9 +467,8 @@ const resetEmployeePassword = async (req, res) => {
       .eq('id', id);
 
     // Apply role-based filtering for access check
-    if (currentUser.role === 'hr') {
-      query = query.eq('created_by', currentUser.id);
-    } else if (currentUser.role === 'hr_manager') {
+    if (currentUser.role === 'hr' || currentUser.role === 'hr_manager') {
+      // HR and HR Manager can reset passwords for all employees in their company
       query = query.eq('company_id', currentUser.company_id);
     } else if (currentUser.role === 'admin') {
       // Admin can only access employees in their company
@@ -555,11 +549,7 @@ const getCompanyProfile = async (req, res) => {
 // Update company profile (HR only)
 const updateCompanyProfile = async (req, res) => {
   try {
-    console.log('🔍 Company profile update request:', {
-      user: req.user,
-      body: req.body,
-      company_id: req.user.company_id
-    });
+
     
     const { 
       name, 
@@ -635,18 +625,17 @@ const getEmployeesForViewing = async (req, res) => {
 // Create employee record for existing user (if missing)
 const createEmployeeRecordForUser = async (req, res) => {
   try {
-    console.log('🔍 createEmployeeRecordForUser called with user:', req.user)
+
     const currentUser = req.user;
     
     // Check if user already has an employee record
-    console.log('🔍 Checking for existing employee record with user_id:', currentUser.id)
     const { data: existingEmployee, error: checkError } = await supabaseAdmin
       .from('employees')
       .select('id, user_id')
       .eq('user_id', currentUser.id)
       .single();
 
-    console.log('🔍 Existing employee check result:', { existingEmployee, checkError })
+
 
     if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
       console.error('Error checking existing employee record:', checkError);
@@ -654,18 +643,18 @@ const createEmployeeRecordForUser = async (req, res) => {
     }
 
     if (existingEmployee) {
-      console.log('✅ Employee record already exists:', existingEmployee)
+
       return res.status(200).json({ 
         message: 'Employee record already exists',
         employee: existingEmployee
       });
     }
 
-    console.log('🔍 No existing employee record found, creating new one...')
+    
 
     // Generate employee ID
     const employeeId = generateEmployeeId();
-    console.log('🔍 Generated employee ID:', employeeId)
+    
 
     // Create employee record
     const employeeData = {
@@ -686,7 +675,7 @@ const createEmployeeRecordForUser = async (req, res) => {
       // Removed is_active and leave_balance as they don't exist in the table
     }
 
-    console.log('🔍 Creating employee record with data:', employeeData)
+    
 
     const { data: newEmployee, error: createError } = await supabaseAdmin
       .from('employees')
@@ -699,7 +688,7 @@ const createEmployeeRecordForUser = async (req, res) => {
       return res.status(500).json({ error: 'Failed to create employee record: ' + createError.message });
     }
 
-    console.log('✅ Created employee record for user:', currentUser.id, 'Employee ID:', newEmployee.id);
+    
 
     res.status(201).json({
       message: 'Employee record created successfully',

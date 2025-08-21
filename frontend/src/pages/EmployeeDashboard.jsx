@@ -3,21 +3,18 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { 
   Users, 
-  Clock, 
   Calendar, 
   FileText,
   Building,
   DollarSign,
   Bell,
-  Plus,
   RefreshCw,
   Download,
   Eye,
-  Edit,
-  Trash2,
-  Mail,
-  Phone,
-  User
+  User,
+  Clock,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { apiService, API_ENDPOINTS } from '../config/api'
@@ -28,17 +25,16 @@ const EmployeeDashboard = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [employees, setEmployees] = useState([])
-  const [filteredEmployees, setFilteredEmployees] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedDepartment, setSelectedDepartment] = useState('')
-  const [showViewModal, setShowViewModal] = useState(false)
-  const [selectedEmployee, setSelectedEmployee] = useState(null)
+  const [employeeData, setEmployeeData] = useState(null)
   const [salarySlips, setSalarySlips] = useState([])
+  const [leaveRequests, setLeaveRequests] = useState([])
+  const [detailedLeaveBalances, setDetailedLeaveBalances] = useState([])
+  const [loading, setLoading] = useState(true)
   const [loadingSlips, setLoadingSlips] = useState(false)
+  const [loadingLeaveBalance, setLoadingLeaveBalance] = useState(false)
   const [showSalarySlipModal, setShowSalarySlipModal] = useState(false)
   const [selectedSalarySlip, setSelectedSalarySlip] = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -47,27 +43,64 @@ const EmployeeDashboard = () => {
     return () => clearInterval(timer)
   }, [])
 
-  // Fetch employees
-  const fetchEmployees = async () => {
-    setLoading(true)
+  // Fetch employee data on component mount
+  useEffect(() => {
+    if (user) {
+      fetchEmployeeData()
+      fetchSalarySlips()
+      fetchLeaveRequests()
+      fetchLeaveBalance()
+    }
+  }, [user])
+
+  // Simplified employee data fetching
+  const fetchEmployeeData = async () => {
     try {
-      console.log('🔄 Fetching employees...')
+      setLoading(true)
+      setError(null)
       
-      const response = await apiService.get(API_ENDPOINTS.EMPLOYEES)
-      console.log('📊 Employees API Response:', response)
-      
-      if (response.status === 200) {
-        setEmployees(response.data.employees || [])
-        setFilteredEmployees(response.data.employees || [])
-        console.log('✅ Employees fetched successfully:', response.data.employees?.length || 0)
-      } else {
-        throw new Error(`Failed to fetch employees: ${response.status}`)
+      // Try to fetch employee details first
+      let employeeDetails = null
+      try {
+        const response = await apiService.get(API_ENDPOINTS.EMPLOYEE_BY_ID(user.id))
+        if (response.status === 200) {
+          employeeDetails = response.data
+        }
+      } catch (error) {
+        console.log('Could not fetch employee details, using user data as fallback')
       }
+      
+      // Combine user data with employee data (if available)
+      const combinedData = {
+        ...user,
+        ...employeeDetails,
+        full_name: employeeDetails?.full_name || user.full_name || 'Employee',
+        email: employeeDetails?.email || user.email || '',
+        department: employeeDetails?.department || 'Not assigned',
+        designation: employeeDetails?.designation || 'Not assigned',
+        joining_date: employeeDetails?.joining_date || employeeDetails?.created_at || 'Not set',
+        salary: employeeDetails?.salary || 'Not set',
+        leave_balance: employeeDetails?.leave_balance || 20
+      }
+      
+      setEmployeeData(combinedData)
+      setError(null)
     } catch (error) {
-      console.error('❌ Error fetching employees:', error)
-      toast.error('Failed to fetch employees')
-      setEmployees([])
-      setFilteredEmployees([])
+      console.error('Error fetching employee data:', error)
+      setError('Failed to fetch employee details')
+      
+      // Set fallback data
+      const fallbackData = {
+        ...user,
+        full_name: user.full_name || 'Employee',
+        email: user.email || '',
+        department: 'Not assigned',
+        designation: 'Not assigned',
+        joining_date: 'Not set',
+        salary: 'Not set',
+        leave_balance: 20
+      }
+      setEmployeeData(fallbackData)
     } finally {
       setLoading(false)
     }
@@ -77,50 +110,124 @@ const EmployeeDashboard = () => {
   const fetchSalarySlips = async () => {
     setLoadingSlips(true)
     try {
-      console.log('🔄 Fetching salary slips...')
-      
       const response = await apiService.get(API_ENDPOINTS.SALARY_SLIPS)
-      console.log('📊 Salary Slips API Response:', response)
       
       if (response.status === 200) {
-        setSalarySlips(response.data.salarySlips || [])
-        console.log('✅ Salary slips fetched successfully:', response.data.salarySlips?.length || 0)
+        const salarySlips = response.data.salarySlips || response.data || []
+        setSalarySlips(salarySlips)
       } else {
         throw new Error(`Failed to fetch salary slips: ${response.status}`)
       }
     } catch (error) {
-      console.error('❌ Error fetching salary slips:', error)
-      toast.error('Failed to fetch salary slips')
+      console.error('Error fetching salary slips:', error)
       setSalarySlips([])
     } finally {
       setLoadingSlips(false)
     }
   }
 
-  useEffect(() => {
-    fetchEmployees()
-    fetchSalarySlips()
-  }, [])
-
-  // Filter employees
-  useEffect(() => {
-    let filtered = employees.filter(employee => {
-      const matchesSearch = employee.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           employee.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           employee.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           employee.designation?.toLowerCase().includes(searchTerm.toLowerCase())
+  // Fetch leave requests for current employee
+  const fetchLeaveRequests = async () => {
+    try {
+      const response = await apiService.get(API_ENDPOINTS.EMPLOYEE_LEAVE_REQUESTS)
       
-      const matchesDepartment = !selectedDepartment || employee.department === selectedDepartment
+      if (response.status === 200) {
+        const leaveRequests = response.data || []
+        setLeaveRequests(leaveRequests)
+      }
+    } catch (error) {
+      console.error('Error fetching leave requests:', error)
+      setLeaveRequests([])
+    }
+  }
+
+  // Enhanced leave balance calculation with multiple fallback methods
+  const fetchLeaveBalance = async () => {
+    setLoadingLeaveBalance(true)
+    try {
+      // Method 1: Try to get leave balance from the dedicated endpoint
+      try {
+        const leaveResponse = await apiService.get(`${API_ENDPOINTS.LEAVE_BALANCE}/${user.id}`)
+        if (leaveResponse.status === 200) {
+          const leaveData = leaveResponse.data
+          console.log('🔍 Leave balance response:', leaveData)
+          
+          // The backend returns { balances: [...] }
+          if (leaveData.balances && Array.isArray(leaveData.balances)) {
+            // Store detailed leave balances
+            setDetailedLeaveBalances(leaveData.balances)
+            
+            // Calculate total leave balance from all leave types
+            const totalBalance = leaveData.balances.reduce((total, balance) => {
+              return total + (balance.remaining_days || 0)
+            }, 0)
+            
+            console.log('✅ Calculated total leave balance:', totalBalance)
+            console.log('✅ Detailed leave balances:', leaveData.balances)
+            setEmployeeData(prev => ({
+              ...prev,
+              leave_balance: totalBalance
+            }))
+          } else if (leaveData.leave_balance !== undefined) {
+            // Fallback to old format
+            setEmployeeData(prev => ({
+              ...prev,
+              leave_balance: leaveData.leave_balance
+            }))
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Leave balance endpoint failed, using fallback:', error.message)
+        // Use fallback calculation
+      }
       
-      return matchesSearch && matchesDepartment
-    })
-
-    setFilteredEmployees(filtered)
-  }, [employees, searchTerm, selectedDepartment])
-
-  const handleViewEmployee = (employee) => {
-    setSelectedEmployee(employee)
-    setShowViewModal(true)
+      // Method 2: Calculate from leave requests
+      try {
+        const allLeaveResponse = await apiService.get(API_ENDPOINTS.EMPLOYEE_LEAVE_REQUESTS)
+        if (allLeaveResponse.status === 200) {
+          const leaveRequests = allLeaveResponse.data || []
+          
+          // Filter approved leaves
+          const approvedLeaves = leaveRequests.filter(req => req.status === 'approved')
+          
+          // Calculate total days taken
+          const totalDaysTaken = approvedLeaves.reduce((total, req) => {
+            const days = req.total_days || 0
+            return total + days
+          }, 0)
+          
+          // Default leave balance (can be customized per company policy)
+          const defaultLeaveBalance = 20 // 20 days per year
+          const calculatedBalance = Math.max(0, defaultLeaveBalance - totalDaysTaken)
+          
+          setEmployeeData(prev => ({
+            ...prev,
+            leave_balance: calculatedBalance
+          }))
+        }
+      } catch (error) {
+        // Use employee data if available
+      }
+      
+      // Method 3: Use employee data if available
+      if (employeeData?.leave_balance !== undefined) {
+        return
+      }
+      
+      // Method 4: Set a reasonable default
+      setEmployeeData(prev => ({
+        ...prev,
+        leave_balance: 20
+      }))
+    } catch (error) {
+      // Set default values on error
+      setEmployeeData(prev => ({
+        ...prev,
+        leave_balance: 20
+      }))
+    } finally {
+      setLoadingLeaveBalance(false)
+    }
   }
 
   const handleViewSalarySlip = (slipId) => {
@@ -200,86 +307,80 @@ const EmployeeDashboard = () => {
     }
   };
 
-  const getDepartments = () => {
-    const departments = [...new Set(employees.map(emp => emp.department).filter(Boolean))]
-    return departments
-  }
-
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-IN')
   }
 
-  const quickActions = [
-    {
-      name: 'Clock In/Out',
-      description: 'Record your attendance',
-      icon: Clock,
-      color: 'from-emerald-600 to-emerald-700',
-      status: 'available'
-    },
-    {
-      name: 'Request Leave',
-      description: 'Submit leave application',
-      icon: Calendar,
-      color: 'from-blue-600 to-blue-700',
-      status: 'available'
-    },
-    {
-      name: 'View Payslip',
-      description: 'Download salary slip',
-      icon: FileText,
-      color: 'from-cyan-600 to-cyan-700',
-      status: 'available'
-    },
-    {
-      name: 'Take Break',
-      description: 'Start break timer',
-      icon: Clock,
-      color: 'from-amber-600 to-amber-700',
-      status: 'available'
-    }
-  ]
-
   const stats = [
     {
-      name: 'Attendance',
-      value: '0%',
-      icon: Clock,
-      color: 'from-emerald-600 to-emerald-700',
-      bgColor: 'bg-emerald-50 dark:bg-emerald-900'
-    },
-    {
       name: 'Leave Balance',
-      value: '0 days',
+      value: employeeData?.leave_balance !== undefined ? `${employeeData.leave_balance} days` : 'Calculating...',
       icon: Calendar,
       color: 'from-blue-600 to-blue-700',
-      bgColor: 'bg-blue-50 dark:bg-gray-700'
+      bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+      action: () => fetchLeaveBalance()
     },
     {
-      name: 'Performance',
-      value: 'N/A',
-      icon: FileText, // Changed from TrendingUp to FileText for consistency
-      color: 'from-cyan-600 to-cyan-700',
-      bgColor: 'bg-cyan-50 dark:bg-gray-700'
+      name: 'Salary Slips',
+      value: `${salarySlips.length} available`,
+      icon: FileText,
+      color: 'from-green-600 to-green-700',
+      bgColor: 'bg-green-50 dark:bg-green-900/20',
+      action: () => fetchSalarySlips()
+    },
+    {
+      name: 'Leave Requests',
+      value: `${leaveRequests.length} submitted`,
+      icon: Calendar,
+      color: 'from-purple-600 to-purple-700',
+      bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+      action: () => fetchLeaveRequests()
     }
   ]
 
+  // Authentication check
   if (!user) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <h2 className="text-xl font-bold text-gray-900">Please login to view dashboard</h2>
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Authentication Error</h2>
+          <p className="text-gray-600">Please login to view your dashboard.</p>
         </div>
       </div>
     )
   }
 
-  if (loading && employees.length === 0) {
+  // Loading state with timeout fallback
+  if (loading && !employeeData) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading employee dashboard...</p>
+          <div className="loading-spinner h-12 w-12 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading employee dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Fallback UI if data fails to load
+  if (!employeeData && !loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertCircle className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Unable to Load Dashboard Data</h2>
+          <p className="text-gray-600 mb-4">There was an issue loading your employee information.</p>
+          <button
+            onClick={() => {
+              setLoading(true)
+              fetchEmployeeData()
+            }}
+            className="btn-primary"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Try Again
+          </button>
         </div>
       </div>
     )
@@ -289,38 +390,141 @@ const EmployeeDashboard = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white">
-        <h1 className="text-2xl font-bold dark:text-white">EMPLOYEE DASHBOARD</h1>
-        <p className="text-blue-100 dark:text-gray-300">
-          Welcome back! Here's your work summary
-        </p>
-      </div>
-
-      {/* Debug Info */}
-      <div className="bg-blue-50 dark:bg-gray-800 border border-blue-200 dark:border-gray-700 rounded-lg p-4">
-        <p className="text-blue-700 dark:text-blue-300 text-sm">
-          <strong>Debug Info:</strong> Current time: {currentTime.toLocaleTimeString()} | 
-          User role: Employee | Session active
-        </p>
-      </div>
-
-      {/* Quick Actions Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
-        {quickActions.map((action) => (
-          <button
-            key={action.name}
-            className="card p-4 text-center hover:shadow-medium transition-all duration-300"
-          >
-            <div className={`inline-flex p-3 rounded-lg bg-gradient-to-r ${action.color} mb-3`}>
-              <action.icon className="h-6 w-6 text-white" />
-            </div>
-            <h3 className="font-semibold text-black dark:text-white mb-1">
-              {action.name}
-            </h3>
-            <p className="text-xs text-black dark:text-gray-400">
-              {action.description}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Employee Dashboard</h1>
+            <p className="text-blue-100 text-lg">
+              Welcome back, {employeeData?.full_name || user?.full_name || 'Employee'}!
             </p>
-          </button>
+            <p className="text-blue-200 text-sm mt-2">
+              {currentTime.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })} • {currentTime.toLocaleTimeString()}
+            </p>
+          </div>
+          <div className="mt-4 sm:mt-0">
+            <button
+              onClick={() => {
+                setLoading(true)
+                fetchEmployeeData()
+                fetchLeaveBalance()
+                fetchSalarySlips()
+                fetchLeaveRequests()
+                toast.success('Dashboard refreshed!')
+              }}
+              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-200 backdrop-blur-sm"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {stats.map((stat) => (
+          <div 
+            key={stat.name} 
+            className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100 dark:border-gray-700 cursor-pointer group"
+            onClick={stat.action}
+            title={`Click to refresh ${stat.name.toLowerCase()}`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  {stat.name}
+                </p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                  {loading ? (
+                    <div className="loading-spinner h-8 w-8"></div>
+                  ) : (
+                    stat.value
+                  )}
+                </p>
+              </div>
+              <div className={`p-4 rounded-xl bg-gradient-to-r ${stat.color} shadow-lg group-hover:scale-110 transition-transform`}>
+                <stat.icon className="h-8 w-8 text-white" />
+              </div>
+            </div>
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+              Click to refresh
+            </div>
+          </div>
         ))}
+      </div>
+
+      {/* Quick Actions */}
+      <div className="card">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Quick Actions
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <button
+              onClick={() => navigate('/leave-request')}
+              className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md transition-all duration-200 text-center group"
+            >
+              <div className="inline-flex p-3 rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 mb-3 group-hover:scale-110 transition-transform">
+                <Calendar className="h-6 w-6 text-white" />
+              </div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">
+                Request Leave
+              </h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Submit a new leave application
+              </p>
+            </button>
+
+            <button
+              onClick={() => navigate('/salary-slips')}
+              className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:border-green-300 dark:hover:border-green-600 hover:shadow-md transition-all duration-200 text-center group"
+            >
+              <div className="inline-flex p-3 rounded-lg bg-gradient-to-r from-green-600 to-green-700 mb-3 group-hover:scale-110 transition-transform">
+                <FileText className="h-6 w-6 text-white" />
+              </div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">
+                View Salary Slips
+              </h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Access your monthly payslips
+              </p>
+            </button>
+
+            <button
+              onClick={() => navigate('/profile')}
+              className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:border-purple-300 dark:hover:border-purple-600 hover:shadow-md transition-all duration-200 text-center group"
+            >
+              <div className="inline-flex p-3 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 mb-3 group-hover:scale-110 transition-transform">
+                <User className="h-6 w-6 text-white" />
+              </div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">
+                Update Profile
+              </h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Edit your personal information
+              </p>
+            </button>
+
+            <button
+              onClick={() => navigate('/leave-management')}
+              className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:border-amber-300 dark:hover:border-amber-600 hover:shadow-md transition-all duration-200 text-center group"
+            >
+              <div className="inline-flex p-3 rounded-lg bg-gradient-to-r from-amber-600 to-amber-700 mb-3 group-hover:scale-110 transition-transform">
+                <Calendar className="h-6 w-6 text-white" />
+              </div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">
+                Leave History
+              </h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                View all your leave requests
+              </p>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Main Grid */}
@@ -376,313 +580,355 @@ const EmployeeDashboard = () => {
         </div>
       </div>
 
-      {/* Salary Slips Section */}
-      <div className="card p-6">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h3 className="text-lg font-semibold text-black dark:text-white">
-              My Salary Slips
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              View and download your salary slips
-            </p>
+      {/* Salary Slips */}
+      <div className="card">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                My Salary Slips
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Access and download your monthly salary slips
+              </p>
+            </div>
+            <button
+              onClick={fetchSalarySlips}
+              className="btn-secondary flex items-center"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </button>
           </div>
-          <button
-            onClick={fetchSalarySlips}
-            disabled={loadingSlips}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loadingSlips ? 'animate-spin' : ''}`} />
-            <span>Refresh</span>
-          </button>
-        </div>
 
-        {loadingSlips ? (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">Loading salary slips...</p>
-          </div>
-        ) : salarySlips.length === 0 ? (
-          <div className="text-center py-8">
-            <DollarSign className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-black dark:text-gray-400">No salary slips found</p>
-            <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
-              Salary slips will appear here once generated by HR
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {salarySlips.map((slip) => (
-              <div key={slip.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-r from-green-600 to-green-700 flex items-center justify-center">
-                      <DollarSign className="h-6 w-6 text-white" />
+          {loadingSlips ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="loading-spinner h-8 w-8"></div>
+            </div>
+          ) : salarySlips.length === 0 ? (
+            <div className="text-center py-8">
+              <FileText className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                No salary slips available
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400">
+                Your salary slips will appear here once they are generated by HR.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {salarySlips.slice(0, 6).map((slip) => (
+                <div key={slip.id} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-all duration-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-green-600 to-green-700 flex items-center justify-center text-white font-semibold mr-3">
+                        <DollarSign className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900 dark:text-white">
+                          Salary Slip - {slip.month_name || slip.month}/{slip.year}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          Generated on {slip.created_at ? formatDate(slip.created_at) : 'N/A'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-900 dark:text-white">
-                        {new Date(slip.year, slip.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </h4>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Net Salary: ₹{slip.net_salary?.toLocaleString() || '0'}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-500">
-                        Generated on: {new Date(slip.created_at).toLocaleDateString()}
-                      </p>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => handleViewSalarySlip(slip.id)}
+                        className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                        title="View Details"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDownloadSalarySlip(slip.id)}
+                        className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
+                        title="Download PDF"
+                      >
+                        <Download size={16} />
+                      </button>
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleViewSalarySlip(slip.id)}
-                      className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-                    >
-                      <Eye className="h-3 w-3" />
-                      <span>View</span>
-                    </button>
-                    <button
-                      onClick={() => handleDownloadSalarySlip(slip.id)}
-                      className="flex items-center space-x-1 px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
-                    >
-                      <Download className="h-3 w-3" />
-                      <span>Download</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Employee Directory */}
-      <div className="card p-6">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h3 className="text-lg font-semibold text-black dark:text-white">
-              Company Directory
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              View your colleagues ({filteredEmployees.length} employees)
-            </p>
-          </div>
-          <button
-            onClick={fetchEmployees}
-            className="btn-secondary flex items-center"
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Refresh
-          </button>
-        </div>
-
-        {/* Search and Filter */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="relative">
-            <FileText className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search employees..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input-field pl-10"
-            />
-          </div>
-
-          <select
-            value={selectedDepartment}
-            onChange={(e) => setSelectedDepartment(e.target.value)}
-            className="input-field"
-          >
-            <option value="">All Departments</option>
-            {getDepartments().map(dept => (
-              <option key={dept} value={dept}>{dept}</option>
-            ))}
-          </select>
-
-          <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center">
-            <Users className="h-4 w-4 mr-2" />
-            {filteredEmployees.length} employees found
-          </div>
-        </div>
-
-        {/* Employee List */}
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="loading-spinner h-8 w-8"></div>
-          </div>
-        ) : filteredEmployees.length === 0 ? (
-          <div className="text-center py-12">
-            <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-              {searchTerm || selectedDepartment ? 'No employees found' : 'No employees yet'}
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400">
-              {searchTerm || selectedDepartment 
-                ? 'Try adjusting your search or filters'
-                : 'Employees will appear here once added to the system'
-              }
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredEmployees.map((employee) => (
-              <div key={employee.id} className="card p-4 hover:shadow-medium transition-all duration-300">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 flex items-center justify-center text-white font-semibold mr-3">
-                      {employee.full_name?.charAt(0).toUpperCase() || 'U'}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <label className="text-gray-500 dark:text-gray-400">Basic Salary</label>
+                      <p className="font-medium text-gray-900 dark:text-white">
+                        ₹{slip.basic_salary || 'N/A'}
+                      </p>
                     </div>
                     <div>
+                      <label className="text-gray-500 dark:text-gray-400">Gross Salary</label>
                       <p className="font-medium text-gray-900 dark:text-white">
-                        {employee.full_name}
+                        ₹{slip.gross_salary || 'N/A'}
                       </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {employee.designation}
+                    </div>
+                    <div>
+                      <label className="text-gray-500 dark:text-gray-400">Net Salary</label>
+                      <p className="font-medium text-gray-900 dark:text-white">
+                        ₹{slip.net_salary || 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-gray-500 dark:text-gray-400">Status</label>
+                      <p className="font-medium text-gray-900 dark:text-white">
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                          Generated
+                        </span>
                       </p>
                     </div>
                   </div>
+                </div>
+              ))}
+              
+              {salarySlips.length > 6 && (
+                <div className="text-center pt-4">
                   <button
-                    onClick={() => handleViewEmployee(employee)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                    title="View Details"
+                    onClick={() => navigate('/salary-slips')}
+                    className="btn-secondary"
                   >
-                    <Eye size={16} />
+                    View All Salary Slips ({salarySlips.length})
                   </button>
                 </div>
-                
-                <div className="space-y-2">
-                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                    <Mail className="h-3 w-3 mr-2" />
-                    <span className="truncate">{employee.email}</span>
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                    <Building className="h-3 w-3 mr-2" />
-                    <span>{employee.department}</span>
-                  </div>
-                  {employee.phone_number && (
-                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                      <Phone className="h-3 w-3 mr-2" />
-                      <span>{employee.phone_number}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Leave Requests */}
+      <div className="card">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                My Leave Requests
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Track your leave applications and their status
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/leave-request')}
+              className="btn-primary flex items-center"
+            >
+              <Calendar className="h-4 w-4 mr-2" />
+              Request Leave
+            </button>
           </div>
-        )}
+
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="loading-spinner h-8 w-8"></div>
+            </div>
+          ) : leaveRequests.length === 0 ? (
+            <div className="text-center py-8">
+              <Calendar className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                No leave requests yet
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-4">
+                You haven't submitted any leave requests yet.
+              </p>
+              <button
+                onClick={() => navigate('/leave-request')}
+                className="btn-primary"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Submit First Leave Request
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {leaveRequests.slice(0, 5).map((request) => (
+                <div key={request.id} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-all duration-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 flex items-center justify-center text-white font-semibold mr-3">
+                        <Calendar className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900 dark:text-white">
+                          {request.leave_type || 'Leave Request'}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {request.start_date && request.end_date 
+                            ? `${formatDate(request.start_date)} - ${formatDate(request.end_date)}`
+                            : 'Date not specified'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        request.status === 'approved' 
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                          : request.status === 'rejected'
+                          ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                          : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                      }`}>
+                        {request.status?.charAt(0).toUpperCase() + request.status?.slice(1) || 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                      <Calendar className="h-3 w-3 mr-2" />
+                      <span>Duration: {request.total_days || 'N/A'} days</span>
+                    </div>
+                    {request.reason && (
+                      <div className="flex items-start text-sm text-gray-600 dark:text-gray-400">
+                        <Bell className="h-3 w-3 mr-2 mt-0.5" />
+                        <span className="line-clamp-2">{request.reason}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              
+              {leaveRequests.length > 5 && (
+                <div className="text-center pt-4">
+                  <button
+                    onClick={() => navigate('/leave-management')}
+                    className="btn-secondary"
+                  >
+                    View All Leave Requests ({leaveRequests.length})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Employee Information */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-black dark:text-white mb-4">
-            Employee Information
-          </h3>
-          <div className="space-y-3">
-            <div className="flex items-center text-black dark:text-gray-400">
-              <User className="h-4 w-4 mr-3 text-slate-500 dark:text-gray-500" />
-              <span>{user?.full_name || 'Your Name'}</span>
+      <div className="card">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                My Information
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Your personal and employment details
+              </p>
             </div>
-            <div className="flex items-center text-black dark:text-gray-400">
-              <Building className="h-4 w-4 mr-3 text-slate-500 dark:text-gray-500" />
-              <span>{user?.department || 'Your Department'}</span>
-            </div>
-            <div className="flex items-center text-black dark:text-gray-400">
-              <Calendar className="h-4 w-4 mr-3 text-slate-500 dark:text-gray-500" />
-              <span>Joined: {user?.created_at ? formatDate(user.created_at) : '[Date]'}</span>
-            </div>
-            <div className="flex items-center text-black dark:text-gray-400">
-              <FileText className="h-4 w-4 mr-3 text-slate-500 dark:text-gray-500" />
-              <span>Performance Rating: N/A</span>
-            </div>
+            <button
+              onClick={() => navigate('/profile')}
+              className="btn-secondary flex items-center"
+            >
+              <User className="h-4 w-4 mr-2" />
+              Edit Profile
+            </button>
           </div>
-        </div>
 
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-black dark:text-white mb-4">
-            Recent Activity
-          </h3>
-          <div className="text-center py-8">
-            <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-black dark:text-gray-400">No recent activity</p>
-            <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">Activities will appear here once you start using the system</p>
-          </div>
-        </div>
-      </div>
-
-      {/* View Employee Modal */}
-      {showViewModal && selectedEmployee && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-strong max-w-md w-full">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Employee Details
-                </h3>
-                <button
-                  onClick={() => {
-                    setShowViewModal(false)
-                    setSelectedEmployee(null)
-                  }}
-                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  ✕
-                </button>
-              </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="loading-spinner h-8 w-8"></div>
             </div>
-
-            <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 flex items-center justify-center text-white font-semibold mr-4">
-                  {selectedEmployee.full_name?.charAt(0).toUpperCase() || 'U'}
-                </div>
+          ) : employeeData ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
                 <div>
-                  <h4 className="font-semibold text-gray-900 dark:text-white">
-                    {selectedEmployee.full_name}
-                  </h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {selectedEmployee.designation}
-                  </p>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Full Name</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{employeeData.full_name}</p>
                 </div>
-              </div>
-
-              <div className="space-y-3">
                 <div>
                   <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Email</label>
-                  <p className="text-gray-900 dark:text-white">{selectedEmployee.email}</p>
+                  <p className="text-gray-900 dark:text-white">{employeeData.email}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Department</label>
-                  <p className="text-gray-900 dark:text-white">{selectedEmployee.department}</p>
+                  <p className="text-gray-900 dark:text-white">{employeeData.department || 'Not specified'}</p>
                 </div>
-                {selectedEmployee.phone_number && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Phone</label>
-                    <p className="text-gray-900 dark:text-white">{selectedEmployee.phone_number}</p>
-                  </div>
-                )}
-                {selectedEmployee.address && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Address</label>
-                    <p className="text-gray-900 dark:text-white">{selectedEmployee.address}</p>
-                  </div>
-                )}
                 <div>
-                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Joined</label>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Designation</label>
+                  <p className="text-gray-900 dark:text-white">{employeeData.designation || 'Not specified'}</p>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Employee ID</label>
+                  <p className="text-gray-900 dark:text-white">{employeeData.employee_id || 'Not assigned'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Joining Date</label>
                   <p className="text-gray-900 dark:text-white">
-                    {selectedEmployee.created_at ? formatDate(selectedEmployee.created_at) : 'N/A'}
+                    {employeeData.joining_date ? formatDate(employeeData.joining_date) : 'Not specified'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Leave Balance</label>
+                  <div className="flex items-center space-x-2">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      (employeeData.leave_balance || 0) > 10 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        : (employeeData.leave_balance || 0) > 5
+                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                    }`}>
+                      {loadingLeaveBalance ? (
+                        <div className="flex items-center space-x-1">
+                          <div className="loading-spinner h-3 w-3"></div>
+                          <span>Calculating...</span>
+                        </div>
+                      ) : (
+                        `${employeeData.leave_balance !== undefined ? employeeData.leave_balance : 0} days`
+                      )}
+                    </span>
+                    <button
+                      onClick={fetchLeaveBalance}
+                      disabled={loadingLeaveBalance}
+                      className={`p-1 transition-colors ${
+                        loadingLeaveBalance 
+                          ? 'text-gray-300 cursor-not-allowed' 
+                          : 'text-gray-400 hover:text-blue-600'
+                      }`}
+                      title="Refresh leave balance"
+                    >
+                      {loadingLeaveBalance ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</label>
+                  <p className="text-gray-900 dark:text-white">
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                      Active
+                    </span>
                   </p>
                 </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="text-center py-8">
+              <User className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400 mb-4">
+                Employee information not available
+              </p>
+              <button
+                onClick={fetchEmployeeData}
+                className="btn-secondary"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh Data
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Salary Slip Detail Modal */}
       {showSalarySlipModal && selectedSalarySlip && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-strong max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-strong max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200 dark:border-gray-700">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -701,96 +947,53 @@ const EmployeeDashboard = () => {
             </div>
 
             <div className="p-6">
-              <div className="mb-6">
-                <h4 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-                  {new Date(selectedSalarySlip.year, selectedSalarySlip.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                </h4>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Generated on: {new Date(selectedSalarySlip.created_at).toLocaleDateString()}
-                </p>
-              </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
-                  <h5 className="font-semibold text-gray-900 dark:text-white mb-3">Salary Summary</h5>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Gross Salary:</span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
-                        ₹{selectedSalarySlip.gross_salary?.toLocaleString() || '0'}
-                      </span>
+                <div>
+                  <h4 className="font-semibold text-gray-900 dark:text-white mb-4">Employee Information</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Name</label>
+                      <p className="text-gray-900 dark:text-white">{selectedSalarySlip.employee_name || 'N/A'}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Total Additions:</span>
-                      <span className="font-semibold text-green-600 dark:text-green-400">
-                        +₹{selectedSalarySlip.total_additions?.toLocaleString() || '0'}
-                      </span>
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Employee ID</label>
+                      <p className="text-gray-900 dark:text-white">{selectedSalarySlip.employee_id || 'N/A'}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Total Deductions:</span>
-                      <span className="font-semibold text-red-600 dark:text-red-400">
-                        -₹{selectedSalarySlip.total_deductions?.toLocaleString() || '0'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="font-bold text-gray-900 dark:text-white">Net Salary:</span>
-                      <span className="font-bold text-blue-600 dark:text-blue-400">
-                        ₹{selectedSalarySlip.net_salary?.toLocaleString() || '0'}
-                      </span>
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Month/Year</label>
+                      <p className="text-gray-900 dark:text-white">
+                        {selectedSalarySlip.month_name || selectedSalarySlip.month}/{selectedSalarySlip.year}
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
-                  <h5 className="font-semibold text-gray-900 dark:text-white mb-3">Working Details</h5>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Total Working Days:</span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
-                        {selectedSalarySlip.total_working_days || 0}
-                      </span>
+                <div>
+                  <h4 className="font-semibold text-gray-900 dark:text-white mb-4">Salary Summary</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Basic Salary</label>
+                      <p className="text-gray-900 dark:text-white">₹{selectedSalarySlip.basic_salary || 'N/A'}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Actual Working Days:</span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
-                        {selectedSalarySlip.actual_working_days || 0}
-                      </span>
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Gross Salary</label>
+                      <p className="text-gray-900 dark:text-white">₹{selectedSalarySlip.gross_salary || 'N/A'}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Unpaid Leaves:</span>
-                      <span className="font-semibold text-red-600 dark:text-red-400">
-                        {selectedSalarySlip.unpaid_leaves || 0}
-                      </span>
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Net Salary</label>
+                      <p className="text-gray-900 dark:text-white">₹{selectedSalarySlip.net_salary || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
               </div>
-
-              {selectedSalarySlip.notes && (
-                <div className="mb-6">
-                  <h5 className="font-semibold text-gray-900 dark:text-white mb-2">Notes</h5>
-                  <p className="text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-                    {selectedSalarySlip.notes}
-                  </p>
-                </div>
-              )}
 
               <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => handleDownloadSalarySlip(selectedSalarySlip.id)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  className="btn-primary flex items-center"
                 >
-                  <Download className="h-4 w-4" />
-                  <span>Download PDF</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setShowSalarySlipModal(false)
-                    setSelectedSalarySlip(null)
-                  }}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                >
-                  Close
+                  <Download className="h-4 w-4 mr-2" />
+                  Download PDF
                 </button>
               </div>
             </div>
@@ -801,4 +1004,4 @@ const EmployeeDashboard = () => {
   )
 }
 
-export default EmployeeDashboard 
+export default EmployeeDashboard

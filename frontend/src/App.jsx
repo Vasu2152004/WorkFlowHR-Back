@@ -165,6 +165,14 @@ function App() {
             </ProtectedRoute>
           } />
           
+          <Route path="/salary-slip/:id" element={
+            <ProtectedRoute>
+              <Layout>
+                <SalarySlips />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          
           <Route path="/employee/:employee_id/fixed-deductions" element={
             <ProtectedRoute>
               <Layout>

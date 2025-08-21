@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import { Building, Eye, EyeOff } from 'lucide-react'
@@ -11,30 +11,183 @@ const Login = () => {
   })
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [errors, setErrors] = useState({})
+  const [loginError, setLoginError] = useState('')
+  const [attempts, setAttempts] = useState(0)
   const { login } = useAuth()
   const navigate = useNavigate()
 
+  // Persist form data and error state
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('login_email')
+    if (savedEmail) {
+      setFormData(prev => ({ ...prev, email: savedEmail }))
+    }
+  }, [])
+
+  // Save email to localStorage when it changes
+  useEffect(() => {
+    if (formData.email) {
+      localStorage.setItem('login_email', formData.email)
+    }
+  }, [formData.email])
+
+  // Clear saved email on successful login
+  const clearSavedData = () => {
+    localStorage.removeItem('login_email')
+  }
+
+  const validateForm = () => {
+    const newErrors = {}
+    
+    // Email validation
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      newErrors.email = 'Please enter a valid email address'
+    }
+    
+    // Password validation
+    if (!formData.password) {
+      newErrors.password = 'Password is required'
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters'
+    }
+    
+    setErrors(newErrors)
+    
+    // Don't clear form data on validation errors
+    // Keep user's input so they can fix and retry
+    return Object.keys(newErrors).length === 0
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+    
+    if (!validateForm()) {
+      return
+    }
+    
+    // Check for too many attempts
+    if (attempts >= 5) {
+      toast.error('Too many login attempts. Please wait 5 minutes before trying again.')
+      return
+    }
+    
     setLoading(true)
+    setErrors({})
+    setLoginError('')
 
     try {
       const success = await login(formData.email, formData.password)
       if (success) {
+        // Reset attempts on successful login
+        setAttempts(0)
+        clearSavedData() // Clear saved email
         navigate('/dashboard')
+      } else {
+        // Increment attempts on failed login
+        setAttempts(prev => prev + 1)
+        
+        // Show warning for multiple attempts
+        if (attempts >= 3) {
+          setLoginError(`Login failed. ${5 - attempts} attempts remaining before temporary lockout.`)
+        } else {
+          setLoginError('Invalid email or password. Please check your credentials and try again.')
+        }
+        
+        // Keep the error message visible for a reasonable time
+        setTimeout(() => {
+          // Only clear error if user hasn't started typing again
+          if (formData.password === '') {
+            setLoginError('')
+          }
+        }, 5000) // Keep error visible for 5 seconds
+        
+        // Don't clear the form on failed login - keep user's input
+        // Only clear the password field for security
+        setFormData(prev => ({
+          ...prev,
+          password: ''
+        }))
+        
+        // Focus on password field for retry
+        setTimeout(() => {
+          const passwordField = document.getElementById('password')
+          if (passwordField) {
+            passwordField.focus()
+          }
+        }, 100)
       }
     } catch (error) {
-      // Handle error silently
+      setAttempts(prev => prev + 1)
+      console.error('Login error:', error)
+      
+      // Set appropriate error message
+      if (error.response?.status === 401) {
+        setLoginError('Invalid email or password. Please check your credentials.')
+      } else if (error.response?.status === 403) {
+        setLoginError('Account is locked. Please contact your administrator.')
+      } else if (error.response?.status === 429) {
+        setLoginError('Too many login attempts. Please wait before trying again.')
+      } else if (error.code === 'NETWORK_ERROR' || error.message.includes('Network Error')) {
+        setLoginError('Network error. Please check your internet connection.')
+      } else {
+        setLoginError('Login failed. Please try again later.')
+      }
+      
+      // Don't clear the form on error - keep user's input
+      // Only clear the password field for security
+      setFormData(prev => ({
+        ...prev,
+        password: ''
+      }))
+      
+      // Keep the error message visible for a reasonable time
+      setTimeout(() => {
+        // Only clear error if user hasn't started typing again
+        if (formData.password === '') {
+          setLoginError('')
+        }
+      }, 5000) // Keep error visible for 5 seconds
+      
+      // Focus on password field for retry
+      setTimeout(() => {
+        const passwordField = document.getElementById('password')
+        if (passwordField) {
+          passwordField.focus()
+        }
+      }, 100)
     } finally {
       setLoading(false)
     }
   }
 
   const handleChange = (e) => {
+    const { name, value } = e.target
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [name]: value
     })
+    
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }))
+    }
+    
+    // Clear login error when user starts typing, but with a small delay
+    if (loginError) {
+      setTimeout(() => {
+        setLoginError('')
+      }, 1000) // Clear error after 1 second of typing
+    }
+  }
+
+  const handleForgotPassword = () => {
+    toast.error('Password reset functionality is not available yet. Please contact your administrator.')
   }
 
   return (
@@ -55,6 +208,23 @@ const Login = () => {
 
         {/* Login Form */}
         <div className="card p-6">
+          {/* Login Error Display */}
+          {loginError && (
+            <div className={`mb-4 p-3 border rounded-md ${
+              attempts >= 3 
+                ? 'bg-orange-50 border-orange-200' 
+                : 'bg-red-50 border-red-200'
+            }`}>
+              <p className={`text-sm ${
+                attempts >= 3 
+                  ? 'text-orange-600 dark:text-orange-400' 
+                  : 'text-red-600 dark:text-red-400'
+              }`}>
+                {loginError}
+              </p>
+            </div>
+          )}
+          
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="email" className="form-label">
@@ -70,6 +240,7 @@ const Login = () => {
                 className="input-field"
                 placeholder="Enter your email"
               />
+              {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
             </div>
 
             <div>
@@ -95,15 +266,39 @@ const Login = () => {
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+              {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password}</p>}
             </div>
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+              disabled={loading || attempts >= 5}
+              className={`w-full py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors duration-200 ${
+                attempts >= 5
+                  ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
+              } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {loading ? 'Signing In...' : 'Sign In'}
+              {loading ? (
+                <div className="flex items-center justify-center">
+                  <div className="loading-spinner h-4 w-4 mr-2"></div>
+                  Signing In...
+                </div>
+              ) : attempts >= 5 ? 'Too Many Attempts' : 'Sign In'}
             </button>
+            
+            {/* Attempts Counter */}
+            {attempts > 0 && attempts < 5 && (
+              <div className="text-center">
+                <p className={`text-sm ${
+                  attempts >= 3 
+                    ? 'text-red-600 dark:text-red-400 font-medium' 
+                    : 'text-orange-600 dark:text-orange-400'
+                }`}>
+                  {attempts} failed attempt{attempts > 1 ? 's' : ''} • {5 - attempts} remaining
+                  {attempts >= 3 && ' • Warning: Account may be locked soon'}
+                </p>
+              </div>
+            )}
           </form>
 
           <div className="mt-6 text-center">
@@ -115,6 +310,14 @@ const Login = () => {
               >
                 Sign up
               </Link>
+            </p>
+            <p className="text-slate-600 dark:text-gray-400 mt-2">
+              <a 
+                onClick={handleForgotPassword} 
+                className="cursor-pointer text-blue-700 dark:text-blue-300 hover:text-blue-600 dark:hover:text-blue-200 font-medium"
+              >
+                Forgot Password?
+              </a>
             </p>
           </div>
         </div>

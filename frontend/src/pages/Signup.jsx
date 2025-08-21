@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
-import { Building, Eye, EyeOff, TestTube } from 'lucide-react'
+import { Building, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { apiService, API_ENDPOINTS } from '../config/api'
 
@@ -13,6 +13,7 @@ const Signup = () => {
     confirmPassword: '',
     company_name: ''
   })
+  const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -22,44 +23,86 @@ const Signup = () => {
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    if (formData.password !== formData.confirmPassword) {
-      toast.error('Passwords do not match')
+    if (!validateForm()) {
       return
     }
-
+    
     setLoading(true)
-
+    setErrors({})
+    
     try {
-      console.log('🔍 Starting signup process...')
-      console.log('🔍 Form data:', formData)
-      console.log('🔍 API endpoint:', API_ENDPOINTS.SIGNUP)
+      const result = await signup(
+        formData.full_name,
+        formData.email,
+        formData.password,
+        formData.company_name
+      )
       
-      const result = await signup(formData.full_name, formData.email, formData.password, formData.company_name)
-      console.log('✅ Signup result:', result)
-      console.log('🔍 Result type:', typeof result)
-      console.log('🔍 Result keys:', result ? Object.keys(result) : 'No result')
-      
-      if (result && result.user) {
-        // Signup successful, redirect to login
-        toast.success(`Account created successfully! Welcome to ${result.company?.name || 'your company'}. Please login to continue.`)
+      if (result) {
+        toast.success('Account created successfully! Please login to continue.')
         navigate('/login')
-      } else {
-        toast.error('Signup failed - unexpected response format')
       }
     } catch (error) {
-      console.error('❌ Signup error:', error)
-      
-      // Handle specific error messages from the backend
-      if (error.response?.data?.error) {
-        toast.error(error.response.data.error)
-      } else if (error.message) {
-        toast.error(error.message)
-      } else {
-        toast.error('Signup failed - please try again')
-      }
+      console.error('Signup error:', error)
+      const errorMessage = error.response?.data?.error || 'Signup failed. Please try again.'
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
+  }
+
+  const validateForm = () => {
+    const newErrors = {}
+    
+    // Clear previous errors
+    setErrors({})
+    
+    // Full name validation
+    if (!formData.full_name.trim()) {
+      newErrors.full_name = 'Full name is required'
+    } else if (formData.full_name.trim().length < 2) {
+      newErrors.full_name = 'Full name must be at least 2 characters'
+    }
+    
+    // Email validation
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required'
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(formData.email.trim())) {
+        newErrors.email = 'Please enter a valid email address'
+      }
+    }
+    
+    // Company name validation
+    if (!formData.company_name.trim()) {
+      newErrors.company_name = 'Company name is required'
+    } else if (formData.company_name.trim().length < 2) {
+      newErrors.company_name = 'Company name must be at least 2 characters'
+    }
+    
+    // Password validation
+    if (!formData.password) {
+      newErrors.password = 'Password is required'
+    } else if (formData.password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters long'
+    } else if (!/\d/.test(formData.password) || !/[a-zA-Z]/.test(formData.password)) {
+      newErrors.password = 'Password must contain both letters and numbers'
+    }
+    
+    // Confirm password validation
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Please confirm your password'
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match'
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors)
+      return false
+    }
+    
+    return true
   }
 
   const handleChange = (e) => {
@@ -67,29 +110,16 @@ const Signup = () => {
       ...formData,
       [e.target.name]: e.target.value
     })
-  }
-
-  const testApiConnection = async () => {
-    try {
-      console.log('🧪 Testing API connection...')
-      
-      // Test basic connection
-      const connectionTest = await apiService.get('/auth/test-connection')
-      console.log('✅ Connection test:', connectionTest.data)
-      
-      // Test schema
-      const schemaTest = await apiService.get('/auth/test-schema')
-      console.log('✅ Schema test:', schemaTest.data)
-      
-      toast.success('API connection test successful!')
-    } catch (error) {
-      console.error('❌ API test failed:', error)
-      toast.error('API test failed: ' + (error.response?.data?.error || error.message))
+    // Clear error when user starts typing
+    if (errors[e.target.name]) {
+      setErrors(prev => ({ ...prev, [e.target.name]: '' }))
     }
   }
 
+
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
@@ -118,9 +148,12 @@ const Signup = () => {
                 value={formData.full_name}
                 onChange={handleChange}
                 required
-                className="input-field"
+                className={`input-field ${errors.full_name ? 'border-red-500' : ''}`}
                 placeholder="Enter your full name"
               />
+              {errors.full_name && (
+                <p className="text-red-500 text-sm mt-1">{errors.full_name}</p>
+              )}
             </div>
 
             <div>
@@ -134,9 +167,12 @@ const Signup = () => {
                 value={formData.email}
                 onChange={handleChange}
                 required
-                className="input-field"
+                className={`input-field ${errors.email ? 'border-red-500' : ''}`}
                 placeholder="Enter your email"
               />
+              {errors.email && (
+                <p className="text-red-500 text-sm mt-1">{errors.email}</p>
+              )}
             </div>
 
             <div>
@@ -150,9 +186,12 @@ const Signup = () => {
                 value={formData.company_name}
                 onChange={handleChange}
                 required
-                className="input-field"
+                className={`input-field ${errors.company_name ? 'border-red-500' : ''}`}
                 placeholder="Enter your company name"
               />
+              {errors.company_name && (
+                <p className="text-red-500 text-sm mt-1">{errors.company_name}</p>
+              )}
             </div>
 
             <div>
@@ -167,7 +206,7 @@ const Signup = () => {
                   value={formData.password}
                   onChange={handleChange}
                   required
-                  className="input-field pr-10"
+                  className={`input-field pr-10 ${errors.password ? 'border-red-500' : ''}`}
                   placeholder="Create a password"
                 />
                 <button
@@ -178,6 +217,9 @@ const Signup = () => {
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+              {errors.password && (
+                <p className="text-red-500 text-sm mt-1">{errors.password}</p>
+              )}
             </div>
 
             <div>
@@ -192,7 +234,7 @@ const Signup = () => {
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   required
-                  className="input-field pr-10"
+                  className={`input-field pr-10 ${errors.confirmPassword ? 'border-red-500' : ''}`}
                   placeholder="Confirm your password"
                 />
                 <button
@@ -203,6 +245,9 @@ const Signup = () => {
                   {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+              {errors.confirmPassword && (
+                <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>
+              )}
             </div>
 
             <button
@@ -220,15 +265,7 @@ const Signup = () => {
               )}
             </button>
 
-            {/* Test API Connection Button */}
-            <button
-              type="button"
-              onClick={testApiConnection}
-              className="btn-secondary w-full flex items-center justify-center"
-            >
-              <TestTube className="h-4 w-4 mr-2" />
-              Test API Connection
-            </button>
+
 
             {/* Company Isolation Note */}
             <div className="text-center text-sm text-gray-500 dark:text-gray-400 mt-4">

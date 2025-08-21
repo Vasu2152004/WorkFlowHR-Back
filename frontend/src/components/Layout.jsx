@@ -50,7 +50,8 @@ const Layout = ({ children }) => {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'Employees', href: '/employees', icon: '👥' },
-    { name: 'Add HR Staff', href: '/add-hr-staff', icon: '👨‍💼', adminOnly: true },
+    { name: 'Add HR Manager', href: '/add-hr-manager', icon: '👨‍💼', adminOnly: true },
+    { name: 'Add HR Staff', href: '/add-hr-staff', icon: '👨‍💼', hrManagerOnly: true },
     { name: 'Salary Slips', href: '/salary-slips', icon: '💰', hrOnly: true },
     { name: 'Document Templates', href: '/create-template', icon: '📄', hrOnly: true },
     { name: 'Generate Documents', href: '/generate-document', icon: '📋', hrOnly: true },
@@ -62,13 +63,13 @@ const Layout = ({ children }) => {
   ]
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 overflow-hidden">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Mobile sidebar */}
       <div className={`fixed inset-0 z-50 lg:hidden ${sidebarOpen ? 'block' : 'hidden'}`}>
-        <div className="fixed inset-0 bg-slate-600 bg-opacity-75" onClick={() => setSidebarOpen(false)} />
-        <div className="relative flex w-full max-w-xs flex-1 flex-col bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 h-full">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-600 flex-shrink-0">
-            <h2 className="text-lg font-semibold text-white">WorkFlowHR</h2>
+        <div className="fixed inset-0 bg-gray-400 bg-opacity-50" onClick={() => setSidebarOpen(false)} />
+        <div className="relative flex w-full max-w-xs flex-1 flex-col bg-gray-100 h-full">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0">
+            <h2 className="text-lg font-semibold text-gray-900">WorkFlowHR</h2>
             <button
               onClick={() => setSidebarOpen(false)}
               className="text-slate-300 hover:text-white"
@@ -82,6 +83,7 @@ const Layout = ({ children }) => {
                 if (item.hrOnly && !['hr', 'hr_manager', 'admin'].includes(user?.role)) return false
                 if (item.employeeOnly && user?.role !== 'employee') return false
                 if (item.adminOnly && user?.role !== 'admin') return false
+                if (item.hrManagerOnly && !['hr_manager', 'admin'].includes(user?.role)) return false
                 return true
               })
               .map((item) => (
@@ -96,7 +98,7 @@ const Layout = ({ children }) => {
                 </Link>
               ))}
           </nav>
-          <div className="border-t border-slate-600 px-4 py-4 flex-shrink-0">
+          <div className="border-t border-gray-200 px-4 py-4 flex-shrink-0">
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 flex items-center justify-center">
@@ -104,17 +106,17 @@ const Layout = ({ children }) => {
                 </div>
               </div>
               <div className="ml-3">
-                <p className="text-sm font-medium text-white">
+                <p className="text-sm font-medium text-gray-900">
                   {user?.full_name || user?.email || 'User'}
                 </p>
-                <p className="text-xs text-slate-300 capitalize">
+                <p className="text-xs text-gray-600 capitalize">
                   {user?.role || 'user'}
                 </p>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="mt-3 w-full flex items-center px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-600 font-medium rounded-lg transition-colors"
+              className="mt-3 w-full flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-200 font-medium rounded-lg transition-colors"
             >
               <LogOut size={16} className="mr-2" />
               Logout
@@ -128,8 +130,8 @@ const Layout = ({ children }) => {
         sidebarCollapsed ? 'lg:w-16' : 'lg:w-64'
       } flex-shrink-0`}>
         <div className="flex flex-col h-full sidebar relative">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-600 flex-shrink-0">
-            <h2 className={`text-xl font-bold text-white transition-opacity duration-300 ${
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+            <h2 className={`text-xl font-bold text-gray-900 transition-opacity duration-300 ${
               sidebarCollapsed ? 'opacity-0' : 'opacity-100'
             }`}>
               WorkFlowHR
@@ -148,6 +150,7 @@ const Layout = ({ children }) => {
                 if (item.hrOnly && !['hr', 'hr_manager', 'admin'].includes(user?.role)) return false
                 if (item.employeeOnly && user?.role !== 'employee') return false
                 if (item.adminOnly && user?.role !== 'admin') return false
+                if (item.hrManagerOnly && !['hr_manager', 'admin'].includes(user?.role)) return false
                 return true
               })
               .map((item) => (
@@ -163,7 +166,7 @@ const Layout = ({ children }) => {
                 </Link>
               ))}
           </nav>
-          <div className="border-t border-slate-600 px-4 py-4 flex-shrink-0">
+          <div className="border-t border-gray-200 px-4 py-4 flex-shrink-0">
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 flex items-center justify-center">
@@ -172,10 +175,10 @@ const Layout = ({ children }) => {
               </div>
               {!sidebarCollapsed && (
                 <div className="ml-3">
-                  <p className="text-sm font-medium text-white">
+                  <p className="text-sm font-medium text-gray-900">
                     {user?.full_name || user?.email || 'User'}
                   </p>
-                  <p className="text-xs text-slate-300 capitalize">
+                  <p className="text-xs text-gray-600 capitalize">
                     {user?.role || 'user'}
                   </p>
                 </div>
@@ -184,7 +187,7 @@ const Layout = ({ children }) => {
             {!sidebarCollapsed && (
               <button
                 onClick={handleLogout}
-                className="mt-3 w-full flex items-center px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-600 font-medium rounded-lg transition-colors"
+                className="mt-3 w-full flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-200 font-medium rounded-lg transition-colors"
               >
                 <LogOut size={16} className="mr-2" />
                 Logout

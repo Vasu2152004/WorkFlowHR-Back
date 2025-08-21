@@ -20,36 +20,23 @@ export default function AddHRStaff() {
 
   // Check authentication and permissions on component mount
   useEffect(() => {
-    console.log('🔍 AddHRStaff component mount:', { 
-      isAuthenticated, 
-      user: user ? { id: user.id, role: user.role, email: user.email } : null 
-    })
-    
-    if (!isAuthenticated || !user) {
-      toast.error('Please login to create HR staff')
-      navigate('/login')
-      return
+    if (user) {
+      if (!['admin', 'hr_manager'].includes(user.role)) {
+        toast.error('Access denied. Only administrators and HR managers can add HR staff.')
+        navigate('/dashboard')
+        return
+      }
     }
-
-    // Check if user has permission to add HR staff
-    if (!['admin', 'hr_manager'].includes(user.role)) {
-      console.log('❌ User role not allowed:', user.role)
-      toast.error('Only Admin and HR Manager can create HR staff')
-      navigate('/dashboard')
-      return
-    }
-    
-    console.log('✅ User has permission to add HR staff')
-  }, [isAuthenticated, user, navigate])
+  }, [user, navigate])
 
   // If not authenticated, don't render the component
   if (!isAuthenticated || !user || !['admin', 'hr_manager'].includes(user.role)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <Shield className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>
-          <p className="text-gray-600">Only Admin and HR Manager can create HR staff.</p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+          <p className="text-gray-600 dark:text-gray-400">Only Admin and HR Manager can create HR staff.</p>
         </div>
       </div>
     )
@@ -89,95 +76,49 @@ export default function AddHRStaff() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    
+    if (!validateForm()) {
+      return
+    }
+    
     setLoading(true)
     setError('')
     setSuccess('')
-
+    
     try {
-      console.log('🔍 Starting HR staff creation...')
-      console.log('🔍 Form data:', formData)
-      console.log('🔍 User role:', user.role)
+      // Determine the endpoint based on role
+      let endpoint
+      let requestData
       
-      // Validate form
-      if (!validateForm()) {
-        setLoading(false)
-        return
-      }
-
-      // Get token from localStorage
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        throw new Error('Authentication token not found. Please login again.')
-      }
-
-      // Use the HR manager endpoint for adding HR staff
-      const endpoint = '/hr-manager/hrs'
-      console.log('🔍 API endpoint:', endpoint)
-
-      // Send to backend API using apiService
-      const requestData = {
-        full_name: formData.full_name,
-        email: formData.email,
-        password: formData.password,
-        role: formData.role
-      }
-      console.log('🔍 Request data:', requestData)
-
-      const response = await apiService.post(endpoint, requestData)
-      console.log('🔍 API response:', response)
-
-      const result = response.data
-
-      if (response.status === 201) { // 201 Created
-        // Success - show message and reset form
-        setSuccess(`${formData.role === 'hr_manager' ? 'HR Manager' : 'HR Staff'} created successfully! 
-          Email: ${result.user.email}
-          Role: ${result.user.role}`)
-
-        // Reset form
-        setFormData({
-          full_name: '',
-          email: '',
-          password: '',
-          role: 'hr'
-        })
-
-        // Show toast notification
-        toast.success(`${formData.role === 'hr_manager' ? 'HR Manager' : 'HR Staff'} created successfully!`)
-      } else {
-        // Handle other status codes
-        if (response.status === 401) {
-          // Token expired or invalid
-          localStorage.removeItem('access_token')
-          toast.error('Session expired. Please login again.')
-          navigate('/login')
-          return
+      if (formData.role === 'hr_manager') {
+        endpoint = API_ENDPOINTS.ADD_HR_MANAGER
+        requestData = {
+          full_name: formData.full_name,
+          email: formData.email,
+          password: formData.password
         }
-        throw new Error(result.error || 'Failed to create HR staff')
-      }
-
-
-
-    } catch (error) {
-      console.error('❌ HR staff creation error:', error)
-      console.error('❌ Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      })
-      
-      // Handle specific error types
-      if (error.response?.status === 401) {
-        setError('Session expired. Please login again.')
-        toast.error('Session expired. Please login again.')
-        navigate('/login')
-      } else if (error.response?.data?.error) {
-        setError(error.response.data.error)
-        toast.error(error.response.data.error)
       } else {
-        setError(error.message || 'Failed to create HR staff')
-        toast.error(error.message || 'Failed to create HR staff')
+        endpoint = API_ENDPOINTS.ADD_HR_STAFF
+        requestData = {
+          full_name: formData.full_name,
+          email: formData.email,
+          password: formData.password,
+          role: formData.role
+        }
       }
+      
+      const response = await apiService.post(endpoint, requestData)
+      
+      if (response.status === 201 || response.status === 200) {
+        toast.success(`${formData.role === 'hr_manager' ? 'HR Manager' : 'HR Staff'} added successfully!`)
+        navigate('/dashboard')
+      } else {
+        toast.error('Failed to add HR staff. Please try again.')
+      }
+    } catch (error) {
+      console.error('Error adding HR staff:', error)
+      const errorMessage = error.response?.data?.error || 'Failed to add HR staff. Please try again.'
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -188,7 +129,7 @@ export default function AddHRStaff() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

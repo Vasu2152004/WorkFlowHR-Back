@@ -13,29 +13,7 @@ const { supabaseAdmin } = require('../config/supabase');
 
 const router = express.Router();
 
-// Test route without authentication for debugging
-router.get('/test-public', (req, res) => {
-  res.json({
-    message: 'Public test endpoint is working!',
-    timestamp: new Date().toISOString(),
-    method: req.method,
-    path: req.path,
-    headers: req.headers
-  });
-});
 
-// Test route to check if routes are working at all
-router.get('/test-route', (req, res) => {
-  res.json({
-    message: 'Route is working!',
-    timestamp: new Date().toISOString(),
-    method: req.method,
-    path: req.path,
-    url: req.url,
-    baseUrl: req.baseUrl,
-    originalUrl: req.originalUrl
-  });
-});
 
 // Validation error handler middleware
 const handleValidationErrors = (req, res, next) => {
@@ -115,82 +93,7 @@ router.use(validateCompanyAccess);
 
 
 
-// Test endpoint for development (returns mock data)
-router.get('/test', (req, res) => {
-  res.json({
-    message: 'API is working!',
-    user: req.user,
-    timestamp: new Date().toISOString()
-  });
-});
 
-// Simple health check for users route
-router.get('/health', (req, res) => {
-  res.json({
-    message: 'Users route is working!',
-    timestamp: new Date().toISOString(),
-    routes: [
-      'GET /employees',
-      'GET /employees/:id',
-      'PUT /employees/:id',
-      'POST /employees',
-      'DELETE /employees/:id'
-    ]
-  });
-});
-
-// Mock data endpoint for development
-router.get('/mock/employees', (req, res) => {
-  const mockEmployees = [
-    {
-      id: 'emp-1',
-      full_name: 'John Doe',
-      email: 'john.doe@company.com',
-      department: 'Engineering',
-      designation: 'Senior Developer',
-      salary: 75000,
-      joining_date: '2023-01-15',
-      phone_number: '+1234567890',
-      leave_balance: 15,
-      created_at: '2023-01-15T00:00:00Z',
-      user: {
-        id: 'user-1',
-        full_name: 'John Doe',
-        email: 'john.doe@company.com',
-        role: 'employee',
-        company_id: 'mock-company-id',
-        is_active: true
-      }
-    },
-    {
-      id: 'emp-2',
-      full_name: 'Jane Smith',
-      email: 'jane.smith@company.com',
-      department: 'Marketing',
-      designation: 'Marketing Manager',
-      salary: 65000,
-      joining_date: '2023-02-20',
-      phone_number: '+1234567891',
-      leave_balance: 20,
-      created_at: '2023-02-20T00:00:00Z',
-      user: {
-        id: 'user-2',
-        full_name: 'Jane Smith',
-        email: 'jane.smith@company.com',
-        role: 'employee',
-        company_id: 'mock-company-id',
-        is_active: true
-      }
-    }
-  ];
-
-  res.json({ 
-    employees: mockEmployees,
-    total: mockEmployees.length,
-    user_role: req.user?.role || 'unknown',
-    company_id: req.user?.company_id || 'mock-company-id'
-  });
-});
 
 // Dashboard endpoint
 router.get('/dashboard', async (req, res) => {
@@ -302,21 +205,7 @@ router.get('/dashboard', async (req, res) => {
   }
 });
 
-router.get('/mock/company', (req, res) => {
-  const mockCompany = {
-    id: 'mock-company-id',
-    name: 'Test Company Ltd.',
-    address: '123 Business Street, Tech City, TC 12345',
-    phone: '+1 (555) 123-4567',
-    email: 'contact@testcompany.com',
-    website: 'https://testcompany.com',
-    logo_url: null,
-    created_at: '2023-01-01T00:00:00Z',
-    updated_at: '2023-01-01T00:00:00Z'
-  };
 
-  res.json({ company: mockCompany });
-});
 
 // Company profile routes
 router.get('/company/profile', userController.getCompanyProfile);
@@ -324,6 +213,29 @@ router.put('/company/profile', requireHR, validateUpdateCompanyProfile, userCont
 
 // Employee viewing routes (accessible by all authenticated users)
 router.get('/employees/view', userController.getEmployeesForViewing);
+
+// Get current user's employee record
+router.get('/employees/me', authenticateToken, async (req, res) => {
+  try {
+    const currentUser = req.user;
+    
+    // Get employee record for current user
+    const { data: employee, error } = await supabaseAdmin
+      .from('employees')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .single();
+
+    if (error || !employee) {
+      return res.status(404).json({ error: 'Employee record not found' });
+    }
+
+    res.json({ employee });
+  } catch (error) {
+    console.error('❌ Get current employee error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Create employee record for existing user (if missing)
 router.post('/create-employee-record', userController.createEmployeeRecordForUser);

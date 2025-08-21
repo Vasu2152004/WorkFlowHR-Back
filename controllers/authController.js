@@ -6,7 +6,7 @@ const adminSignup = async (req, res) => {
   try {
     const { email, password, full_name, company_name } = req.body;
     
-    console.log('🔍 Admin signup request:', { email, full_name, company_name })
+
     
     // Check if Supabase is properly configured
     if (!supabaseAdmin || !supabaseAdmin.from) {
@@ -17,7 +17,7 @@ const adminSignup = async (req, res) => {
     // Validation is handled by route middleware
 
     // Check if company already exists (company isolation)
-    console.log('🔍 Checking if company already exists...')
+
     const { data: existingCompany, error: companyCheckError } = await supabaseAdmin
       .from('companies')
       .select('id, name')
@@ -30,12 +30,12 @@ const adminSignup = async (req, res) => {
     }
 
     if (existingCompany) {
-      console.log('❌ Company already exists:', existingCompany.name)
+              console.log('Company already exists:', existingCompany.name)
       return res.status(403).json({ error: 'Company already exists. Please use a different company name or contact support.' });
     }
 
     // Check if this email is already registered (user isolation)
-    console.log('🔍 Checking if email already exists...')
+    
     const { data: existingUser, error: userCheckError } = await supabaseAdmin
       .from('users')
       .select('id, email')
@@ -48,12 +48,12 @@ const adminSignup = async (req, res) => {
     }
 
     if (existingUser) {
-      console.log('❌ Email already registered:', existingUser.email)
+              console.log('Email already registered:', existingUser.email)
       return res.status(403).json({ error: 'Email already registered. Please use a different email address.' });
     }
 
     // Create company
-    console.log('🔍 Creating company:', company_name)
+    
     const { data: company, error: companyError } = await supabaseAdmin
       .from('companies')
       .insert([{ name: company_name }])
@@ -65,7 +65,7 @@ const adminSignup = async (req, res) => {
       return res.status(500).json({ error: 'Failed to create company: ' + companyError.message });
     }
     
-    console.log('✅ Company created:', company)
+    
 
     // Create user in Supabase Auth
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -79,13 +79,6 @@ const adminSignup = async (req, res) => {
     }
 
     // Create admin user in our users table
-    console.log('🔍 Creating user record in database:', {
-      id: authData.user.id,
-      full_name,
-      email,
-      role: 'admin',
-      company_id: company.id
-    })
     
     const { data: userRecord, error: userError } = await supabaseAdmin
       .from('users')
@@ -107,9 +100,7 @@ const adminSignup = async (req, res) => {
       return res.status(500).json({ error: 'Failed to create user in database: ' + userError.message });
     }
     
-    console.log('✅ User record created:', userRecord)
-    
-    console.log('✅ Admin signup completed successfully')
+
     res.status(201).json({
       message: 'Company and admin user created successfully',
       user: {
@@ -360,7 +351,33 @@ const getProfile = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(user);
+    // Get company info
+    let company = null;
+    if (user.company_id) {
+      const { data: companyData, error: companyError } = await supabaseAdmin
+        .from('companies')
+        .select('*')
+        .eq('id', user.company_id)
+        .single();
+
+      if (!companyError && companyData) {
+        company = companyData;
+      }
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        company_id: user.company_id,
+        company_name: company?.name || 'Unknown Company',
+        is_active: user.is_active,
+        created_at: user.created_at,
+        updated_at: user.updated_at
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -393,6 +410,111 @@ const refreshToken = async (req, res) => {
   }
 };
 
+// Update user profile
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { full_name, email } = req.body;
+
+    // Check if email is already taken by another user
+    if (email) {
+      const { data: existingUser, error: emailCheckError } = await supabaseAdmin
+        .from('users')
+        .select('id, email')
+        .eq('email', email)
+        .neq('id', userId)
+        .single();
+
+      if (existingUser) {
+        return res.status(400).json({ error: 'Email is already taken by another user' });
+      }
+    }
+
+    // Update user profile
+    const { data: updatedUser, error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        full_name: full_name || undefined,
+        email: email || undefined,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('❌ Profile update error:', updateError);
+      return res.status(500).json({ error: 'Failed to update profile' });
+    }
+
+    // If email was changed, update Supabase Auth as well
+    if (email && email !== req.user.email) {
+      const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+        email: email
+      });
+
+      if (authUpdateError) {
+        console.error('❌ Auth email update error:', authUpdateError);
+        // Don't fail the request, just log the error
+      }
+    }
+
+    res.json({
+      message: 'Profile updated successfully',
+      user: {
+        id: updatedUser.id,
+        full_name: updatedUser.full_name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        company_id: updatedUser.company_id,
+        is_active: updatedUser.is_active,
+        created_at: updatedUser.created_at,
+        updated_at: updatedUser.updated_at
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Profile update exception:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Change user password
+const changePassword = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { currentPassword, newPassword } = req.body;
+
+    // Verify current password
+    const { data: { user: authUser }, error: signInError } = await supabase.auth.signInWithPassword({
+      email: req.user.email,
+      password: currentPassword
+    });
+
+    if (signInError || !authUser) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    // Update password in Supabase Auth
+    const { error: passwordUpdateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      password: newPassword
+    });
+
+    if (passwordUpdateError) {
+      console.error('❌ Password update error:', passwordUpdateError);
+      return res.status(500).json({ error: 'Failed to update password' });
+    }
+
+    res.json({
+      message: 'Password changed successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Password change exception:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   adminSignup,
   addHRManager,
@@ -400,5 +522,7 @@ module.exports = {
   login,
   logout,
   getProfile,
+  updateProfile,
+  changePassword,
   refreshToken
 }; 

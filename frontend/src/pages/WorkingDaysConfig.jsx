@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { apiService, API_ENDPOINTS } from '../config/api'
-import { Calendar, Clock, Save, TestTube, ArrowLeft, Settings } from 'lucide-react'
+import { Calendar, Clock, Save, ArrowLeft, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
@@ -21,9 +21,7 @@ export default function WorkingDaysConfig() {
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [testMonth, setTestMonth] = useState(new Date().getMonth() + 1)
-  const [testYear, setTestYear] = useState(new Date().getFullYear())
-  const [testResult, setTestResult] = useState(null)
+
 
   // Fetch current configuration
   const fetchConfig = async () => {
@@ -116,29 +114,7 @@ export default function WorkingDaysConfig() {
     }
   }
 
-  // Test working days calculation
-  const handleTestCalculation = async () => {
-    try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
-        throw new Error('Authentication token not found')
-      }
 
-      const response = await apiService.get(`${API_ENDPOINTS.WORKING_DAYS_CALCULATE}?month=${testMonth}&year=${testYear}`)
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to calculate working days')
-      }
-
-      setTestResult(result)
-      toast.success(`Working days calculated: ${result.workingDays} days`)
-    } catch (error) {
-      console.error('Error testing calculation:', error)
-      toast.error(error.message || 'Failed to calculate working days')
-    }
-  }
 
   if (loading) {
     return (
@@ -237,7 +213,7 @@ export default function WorkingDaysConfig() {
               >
                 {saving ? (
                   <>
-                    <TestTube className="animate-spin -ml-1 mr-2 h-4 w-4" />
+                    <Clock className="animate-spin -ml-1 mr-2 h-4 w-4" />
                     Saving...
                   </>
                 ) : (
@@ -250,73 +226,8 @@ export default function WorkingDaysConfig() {
             </div>
           </div>
 
-          {/* Test Calculation */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">Test Calculation</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Test Month
-                </label>
-                <select
-                  value={testMonth}
-                  onChange={(e) => setTestMonth(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <option key={i + 1} value={i + 1}>
-                      {new Date(2024, i).toLocaleDateString('en-US', { month: 'long' })}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Test Year
-                </label>
-                <select
-                  value={testYear}
-                  onChange={(e) => setTestYear(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  {Array.from({ length: 11 }, (_, i) => (
-                    <option key={2020 + i} value={2020 + i}>
-                      {2020 + i}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={handleTestCalculation}
-                className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <Clock className="-ml-1 mr-2 h-4 w-4" />
-                Calculate Working Days
-              </button>
-
-              {testResult && (
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Result</h3>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Month:</span>
-                      <span className="text-sm font-medium">
-                        {new Date(testResult.year, testResult.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Working Days:</span>
-                      <span className="text-sm font-medium text-green-600">
-                        {testResult.workingDays} days
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+          
 
             {/* Information */}
             <div className="mt-8 p-4 bg-blue-50 rounded-lg">

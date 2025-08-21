@@ -18,7 +18,6 @@ import { toast } from 'react-hot-toast'
 import { apiService, API_ENDPOINTS } from '../config/api'
 
 const CompanyProfile = () => {
-  console.log('🔍 CompanyProfile component rendering...')
   
   const { user } = useAuth()
   const [company, setCompany] = useState(null)
@@ -50,15 +49,14 @@ const CompanyProfile = () => {
 
   // Fetch company profile
   const fetchCompanyProfile = async () => {
-    console.log('🔍 Fetching company profile...')
-    setLoading(true)
     try {
+      setLoading(true)
+      setError(null)
+      
       const response = await apiService.get(API_ENDPOINTS.USERS + '/company/profile')
-      console.log('✅ Company profile response:', response)
-
+      
       if (response.status === 200) {
         const data = response.data
-        console.log('✅ Company profile data:', data)
         setCompany(data.company)
         setEditForm({
           name: data.company.name || '',
@@ -68,12 +66,10 @@ const CompanyProfile = () => {
           email: data.company.email || ''
         })
       } else {
-        throw new Error('Failed to fetch company profile')
+        setError('Failed to fetch company profile')
       }
     } catch (error) {
-      console.error('❌ Error fetching company profile:', error)
-      setError(error.message)
-      toast.error('Failed to fetch company profile: ' + error.message)
+      setError('Failed to fetch company profile')
     } finally {
       setLoading(false)
     }
@@ -82,32 +78,23 @@ const CompanyProfile = () => {
   // Fetch working days configuration
   const fetchWorkingDaysConfig = async () => {
     try {
-      console.log('🔍 Fetching working days configuration...')
-      const response = await apiService.get(API_ENDPOINTS.WORKING_DAYS + '/config')
-
+      const response = await apiService.get(API_ENDPOINTS.WORKING_DAYS_CONFIG)
+      
       if (response.status === 200) {
         const data = response.data
-        console.log('✅ Working days config data:', data)
-        setWorkingDaysConfig(data.config)
-      } else {
-        const error = response.data
-        console.log('⚠️ Working days config response:', response.status, error)
-        // Don't show error toast for default config, just log it
-        if (response.status !== 404) {
-          toast.error(error.error || 'Failed to fetch working days configuration')
-        }
+        setWorkingDaysConfig(data.working_days || [])
       }
     } catch (error) {
-      console.error('❌ Error fetching working days config:', error)
-      // Don't show error toast for network issues, just log it
+      // Working days config is optional, don't show error
     }
   }
 
   useEffect(() => {
-    console.log('🔍 CompanyProfile component mounted')
-    fetchCompanyProfile()
-    fetchWorkingDaysConfig()
-  }, [])
+    if (user) {
+      fetchCompanyProfile()
+      fetchWorkingDaysConfig()
+    }
+  }, [user])
 
   const handleEdit = () => {
     setIsEditing(true)
@@ -204,10 +191,7 @@ const CompanyProfile = () => {
     }
   }
 
-  console.log('🔍 CompanyProfile render state:', { loading, error, company, user })
-
   if (loading) {
-    console.log('🔍 Rendering loading state')
     return (
       <div className="flex items-center justify-center h-64">
         <div className="loading-spinner h-12 w-12"></div>
@@ -216,7 +200,6 @@ const CompanyProfile = () => {
   }
 
   if (error) {
-    console.log('🔍 Rendering error state')
     return (
       <div className="text-center py-12">
         <Building className="h-16 w-16 text-red-400 mx-auto mb-4" />
@@ -241,7 +224,6 @@ const CompanyProfile = () => {
   }
 
   if (!company) {
-    console.log('🔍 Rendering no company state')
     return (
       <div className="text-center py-12">
         <Building className="h-16 w-16 text-gray-400 mx-auto mb-4" />
@@ -283,7 +265,6 @@ const CompanyProfile = () => {
     )
   }
 
-  console.log('🔍 Rendering main company profile UI')
   return (
     <div className="space-y-6">
       {/* Header */}

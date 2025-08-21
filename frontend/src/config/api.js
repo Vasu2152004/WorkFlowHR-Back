@@ -9,6 +9,9 @@ const api = axios.create({
   // Remove baseURL to ensure dynamic URL generation
 });
 
+// Flag to track if we're in a login flow to prevent automatic redirects
+let isLoginFlow = false;
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
@@ -16,6 +19,12 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Check if this is a login request to set the flag
+    if (config.url && config.url.includes('/auth/login')) {
+      isLoginFlow = true;
+    }
+    
     return config;
   },
   (error) => {
@@ -26,15 +35,25 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
+    // Reset login flow flag on successful response
+    if (response.config.url && response.config.url.includes('/auth/login')) {
+      isLoginFlow = false;
+    }
     return response;
   },
   (error) => {
-    // Handle 401 Unauthorized - redirect to login
+    // Handle 401 Unauthorized - but don't redirect during login attempts
     if (error.response?.status === 401) {
-      localStorage.removeItem('access_token'); // Fixed: use access_token instead of token
-      localStorage.removeItem('refresh_token'); // Fixed: use refresh_token instead of user
-      localStorage.removeItem('user'); // Keep user removal for consistency
-      window.location.href = '/login';
+      // Only auto-redirect if we're not in a login flow
+      if (!isLoginFlow) {
+        localStorage.removeItem('access_token'); // Fixed: use access_token instead of token
+        localStorage.removeItem('refresh_token'); // Fixed: use refresh_token instead of user
+        localStorage.removeItem('user'); // Keep user removal for consistency
+        window.location.href = '/login';
+      } else {
+        // Reset login flow flag for failed login attempts
+        isLoginFlow = false;
+      }
     }
     
     // Handle 403 Forbidden
@@ -58,6 +77,8 @@ export const API_ENDPOINTS = {
   SIGNUP: '/auth/signup',
   LOGOUT: '/auth/logout',
   PROFILE: '/auth/profile',
+  UPDATE_PROFILE: '/auth/profile',
+  CHANGE_PASSWORD: '/auth/change-password',
   ADD_HR_MANAGER: '/auth/add-hr-manager',
   ADD_HR_STAFF: '/auth/add-hr-staff',
   
@@ -72,6 +93,8 @@ export const API_ENDPOINTS = {
   GET_TEMPLATE: (id) => `/documents/templates/${id}`,
   UPDATE_TEMPLATE: (id) => `/documents/templates/${id}`,
   GENERATE_DOCUMENT: '/documents/generate-document',
+  TEMPLATES: '/documents/templates',
+  CREATE_TEMPLATE: '/documents/templates',
   
   // Leave endpoints
   LEAVES: '/leaves',
@@ -112,28 +135,16 @@ const getApiBaseUrl = () => {
   const isVercel = currentHostname.includes('vercel.app');
   const isLocalhost = currentHostname === 'localhost' || currentHostname === '127.0.0.1';
   
-  console.log('🔍 getApiBaseUrl Debug:', {
-    currentHostname,
-    isVercel,
-    isLocalhost,
-    env: import.meta.env.MODE,
-    viteUrl: import.meta.env.VITE_API_BASE_URL,
-    timestamp: new Date().toISOString()
-  });
-  
   if (import.meta.env.VITE_API_BASE_URL) {
-    console.log('🌐 Using VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
     return import.meta.env.VITE_API_BASE_URL;
   }
   
   // If on Vercel or any non-localhost domain, use relative path
   if (isVercel || !isLocalhost) {
-    console.log('🌐 Using production API URL: /api');
     return '/api';
   }
   
   // Only use localhost for actual localhost
-  console.log('🌐 Using development API URL: http://localhost:3000/api');
   return 'http://localhost:3000/api';
 };
 
@@ -143,13 +154,6 @@ export const apiService = {
   get: (endpoint, config = {}) => {
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
-    console.log('🌐 API GET Request:', {
-      endpoint,
-      baseUrl,
-      fullUrl: url,
-      hostname: window.location.hostname,
-      timestamp: new Date().toISOString()
-    });
     return api.get(url, config);
   },
   
@@ -157,13 +161,6 @@ export const apiService = {
   post: (endpoint, data = {}, config = {}) => {
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
-    console.log('🌐 API POST Request:', {
-      endpoint,
-      baseUrl,
-      fullUrl: url,
-      hostname: window.location.hostname,
-      timestamp: new Date().toISOString()
-    });
     return api.post(url, data, config);
   },
   
@@ -171,13 +168,6 @@ export const apiService = {
   put: (endpoint, data = {}, config = {}) => {
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
-    console.log('🌐 API PUT Request:', {
-      endpoint,
-      baseUrl,
-      fullUrl: url,
-      hostname: window.location.hostname,
-      timestamp: new Date().toISOString()
-    });
     return api.put(url, data, config);
   },
   
@@ -185,13 +175,6 @@ export const apiService = {
   delete: (endpoint, config = {}) => {
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
-    console.log('🌐 API DELETE Request:', {
-      endpoint,
-      baseUrl,
-      fullUrl: url,
-      hostname: window.location.hostname,
-      timestamp: new Date().toISOString()
-    });
     return api.delete(url, config);
   },
   
@@ -199,13 +182,6 @@ export const apiService = {
   upload: (endpoint, formData, config = {}) => {
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
-    console.log('🌐 API UPLOAD Request:', {
-      endpoint,
-      baseUrl,
-      fullUrl: url,
-      hostname: window.location.hostname,
-      timestamp: new Date().toISOString()
-    });
     return api.post(url, formData, {
       ...config,
       headers: {
@@ -219,13 +195,6 @@ export const apiService = {
   getUrl: (endpoint) => {
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
-    console.log('🌐 getUrl called:', {
-      endpoint,
-      baseUrl,
-      fullUrl: url,
-      hostname: window.location.hostname,
-      timestamp: new Date().toISOString()
-    });
     return url;
   },
 };
@@ -245,18 +214,10 @@ export const healthCheck = async () => {
 // Simple API test function
 export const testApi = async () => {
   try {
-    console.log('🧪 Testing API configuration...');
-    console.log('🌐 Current hostname:', window.location.hostname);
-    console.log('🌐 API base URL:', getApiBaseUrl());
-    console.log('🌐 Environment:', import.meta.env.MODE);
-    console.log('🌐 VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
-    
     // Test a simple GET request
     const testUrl = `${getApiBaseUrl()}/health`;
-    console.log('🧪 Testing URL:', testUrl);
     
     const response = await axios.get(testUrl);
-    console.log('✅ API test successful:', response.data);
     return { success: true, data: response.data };
   } catch (error) {
     console.error('❌ API test failed:', error);

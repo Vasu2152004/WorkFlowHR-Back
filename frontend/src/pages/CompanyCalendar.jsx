@@ -13,6 +13,11 @@ const CompanyCalendar = () => {
   const [showModal, setShowModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [filterType, setFilterType] = useState('')
+  
+  // Add missing date range state variables
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -21,41 +26,63 @@ const CompanyCalendar = () => {
     is_recurring: false,
     recurring_pattern: ''
   })
+  const [error, setError] = useState(null)
+
+  // Calculate date range when currentDate changes
+  useEffect(() => {
+    const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+    const end = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+    
+    setStartDate(start.toISOString().split('T')[0])
+    setEndDate(end.toISOString().split('T')[0])
+  }, [currentDate])
 
   useEffect(() => {
-    if (user) {
+    if (user && startDate && endDate) {
       fetchEvents()
     }
-  }, [user, currentDate, filterType])
+  }, [user, startDate, endDate, filterType])
 
   const fetchEvents = async () => {
     try {
       setLoading(true)
-      console.log('🔄 Fetching calendar events...')
+      setError(null)
       
-      const year = currentDate.getFullYear()
-      const month = currentDate.getMonth() + 1
+      console.log('Fetching calendar events...')
+      console.log('Date range:', { startDate, endDate })
+      console.log('User info:', { id: user.id, role: user.role, company_id: user.company_id })
       
-      let url = `${API_ENDPOINTS.COMPANY_CALENDAR}/events?month=${month}&year=${year}`
-      if (filterType) {
-        url += `&type=${filterType}`
-      }
-
-      console.log('📡 API URL:', url)
+      const url = `${API_ENDPOINTS.COMPANY_CALENDAR_EVENTS_RANGE}?start_date=${startDate}&end_date=${endDate}`
+      console.log('API URL:', url)
+      
       const response = await apiService.get(url)
-
-      console.log('📊 API Response:', response)
-
+      console.log('Calendar events response:', response)
+      
       if (response.status === 200) {
-        setEvents(response.data || [])
-        console.log('✅ Events fetched successfully:', response.data)
+        const data = response.data
+        console.log('Calendar events data:', data)
+        setEvents(Array.isArray(data) ? data : [])
       } else {
-        throw new Error(`Failed to fetch events: ${response.status}`)
+        console.error('Calendar events failed with status:', response.status)
+        setError('Failed to fetch events')
       }
     } catch (error) {
-      console.error('❌ Error fetching events:', error)
-      toast.error('Failed to fetch calendar events')
-      setEvents([]) // Set empty array on error
+      console.error('Calendar events fetch error:', error)
+      console.error('Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      })
+      
+      if (error.response?.status === 403) {
+        setError('Access denied. You need HR permissions to view calendar events.')
+      } else if (error.response?.status === 404) {
+        setError('Calendar events endpoint not found.')
+      } else if (error.response?.status === 500) {
+        setError('Server error. Please try again later.')
+      } else {
+        setError('Failed to fetch events. Please check your connection.')
+      }
     } finally {
       setLoading(false)
     }
@@ -66,20 +93,22 @@ const CompanyCalendar = () => {
     setLoading(true)
 
     try {
-      console.log('🔄 Submitting calendar event...')
-      console.log('📝 Form data:', formData)
+      console.log('Submitting calendar event...')
+      console.log('Form data:', formData)
+      console.log('User info:', { id: user.id, role: user.role, company_id: user.company_id })
 
       const url = isEditing 
-        ? `${API_ENDPOINTS.COMPANY_CALENDAR}/events/${selectedEvent.id}`
-        : `${API_ENDPOINTS.COMPANY_CALENDAR}/events`
+        ? `${API_ENDPOINTS.COMPANY_CALENDAR_EVENTS}/${selectedEvent.id}`
+        : API_ENDPOINTS.COMPANY_CALENDAR_EVENTS
       
-      console.log('📡 API URL:', url)
-      
+      console.log('API URL:', url)
+      console.log('Method:', isEditing ? 'PUT' : 'POST')
+
       const response = isEditing 
         ? await apiService.put(url, formData)
         : await apiService.post(url, formData)
 
-      console.log('📊 API Response:', response)
+      console.log('Calendar event response:', response)
 
       if (response.status !== 200 && response.status !== 201) {
         throw new Error(response.data?.error || 'Failed to save calendar event')
@@ -104,8 +133,22 @@ const CompanyCalendar = () => {
       // Refresh events
       fetchEvents()
     } catch (error) {
-      console.error('❌ Error saving event:', error)
-      toast.error(error.message || 'Failed to save calendar event')
+      console.error('Error saving event:', error)
+      console.error('Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      })
+      
+      if (error.response?.status === 400) {
+        toast.error(error.response.data?.error || 'Invalid data. Please check your input.')
+      } else if (error.response?.status === 403) {
+        toast.error('Access denied. You need HR permissions to create calendar events.')
+      } else if (error.response?.status === 500) {
+        toast.error('Server error. Please try again later.')
+      } else {
+        toast.error(error.message || 'Failed to save calendar event')
+      }
     } finally {
       setLoading(false)
     }
@@ -117,22 +160,36 @@ const CompanyCalendar = () => {
     }
 
     try {
-      console.log('🔄 Deleting calendar event:', eventId)
+      console.log('Deleting calendar event:', eventId)
       
-      const response = await apiService.delete(`${API_ENDPOINTS.COMPANY_CALENDAR}/events/${eventId}`)
+      const response = await apiService.delete(`${API_ENDPOINTS.COMPANY_CALENDAR_EVENTS}/${eventId}`)
 
-      console.log('📊 Delete API Response:', response)
+      console.log('Delete response:', response)
 
       if (response.status !== 200) {
         throw new Error(response.data?.error || 'Failed to delete calendar event')
       }
 
       const data = response.data
-      toast.success(data.message)
+      toast.success(data.message || 'Event deleted successfully')
       fetchEvents()
     } catch (error) {
-      console.error('❌ Error deleting event:', error)
-      toast.error(error.message || 'Failed to delete calendar event')
+      console.error('Error deleting event:', error)
+      console.error('Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      })
+      
+      if (error.response?.status === 403) {
+        toast.error('Access denied. You need HR permissions to delete calendar events.')
+      } else if (error.response?.status === 404) {
+        toast.error('Event not found.')
+      } else if (error.response?.status === 500) {
+        toast.error('Server error. Please try again later.')
+      } else {
+        toast.error(error.message || 'Failed to delete calendar event')
+      }
     }
   }
 
@@ -203,6 +260,7 @@ const CompanyCalendar = () => {
     })
   }
 
+  // Month navigation functions
   const navigateMonth = (direction) => {
     const newDate = new Date(currentDate)
     if (direction === 'prev') {
@@ -213,10 +271,10 @@ const CompanyCalendar = () => {
     setCurrentDate(newDate)
   }
 
-  const filteredEvents = events.filter(event => {
-    if (!filterType) return true
-    return event.type === filterType
-  })
+  // Filter events by type
+  const filteredEvents = events.filter(event => 
+    !filterType || event.type === filterType
+  )
 
   if (!user) {
     return (
@@ -241,38 +299,49 @@ const CompanyCalendar = () => {
 
   return (
     <div className="max-w-6xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-8">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Company Calendar</h1>
-          <p className="text-gray-600">View and manage company holidays and events</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Company Calendar</h1>
+          <p className="text-gray-600 dark:text-gray-400">Manage company events, holidays, and important dates</p>
         </div>
-        
-        {/* Navigation and Controls */}
-        <div className="flex items-center space-x-4">
-          {/* Month Navigation */}
-          <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowModal(true)}
+            className="btn-primary flex items-center"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Event
+          </button>
+        </div>
+      </div>
+
+      {/* Month Navigation */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 mb-6 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
             <button
               onClick={() => navigateMonth('prev')}
-              className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50"
+              className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4 text-gray-700 dark:text-gray-300" />
             </button>
-            <span className="font-semibold text-lg min-w-[120px] text-center">
+            <span className="font-semibold text-lg min-w-[120px] text-center text-gray-900 dark:text-white">
               {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </span>
             <button
               onClick={() => navigateMonth('next')}
-              className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50"
+              className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4 text-gray-700 dark:text-gray-300" />
             </button>
           </div>
-
-          {/* Filter */}
+          
+          {/* Event Type Filter */}
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="">All Events</option>
             <option value="holiday">Holidays</option>
@@ -280,39 +349,44 @@ const CompanyCalendar = () => {
             <option value="company_event">Company Events</option>
             <option value="optional_holiday">Optional Holidays</option>
           </select>
-
-          {/* Add New Event Button (HR only) */}
-          {['hr', 'hr_manager', 'admin'].includes(user.role) && (
-            <button
-              onClick={handleAddNew}
-              className="btn-primary flex items-center"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Event
-            </button>
-          )}
         </div>
       </div>
 
       {/* Calendar Events */}
-      <div className="bg-white rounded-lg shadow-md">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
         {loading ? (
-          <div className="p-8 text-center">
-            <div className="loading-spinner h-8 w-8 mx-auto"></div>
-            <p className="mt-2 text-gray-600">Loading events...</p>
+          <div className="flex items-center justify-center py-12">
+            <div className="loading-spinner h-8 w-8 mr-3"></div>
+            <span className="text-gray-600 dark:text-gray-400">Loading calendar events...</span>
           </div>
-        ) : filteredEvents.length === 0 ? (
+        ) : error ? (
+          <div className="text-center py-12">
+            <div className="text-red-500 mb-4">
+              <Calendar className="w-16 h-16 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Error Loading Calendar</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={fetchEvents}
+                  className="btn-primary"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : events.length === 0 ? (
           <div className="p-8 text-center">
             <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Events Found</h3>
-            <p className="text-gray-600">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Events Found</h3>
+            <p className="text-gray-600 dark:text-gray-400">
               {filterType ? `No ${filterType.replace('_', ' ')} events found for this month.` : 'No events found for this month.'}
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {filteredEvents.map((event) => (
-              <div key={event.id} className="p-6 hover:bg-gray-50 transition-colors">
+              <div key={event.id} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start space-x-4">
                     <div className="flex-shrink-0">
@@ -320,19 +394,19 @@ const CompanyCalendar = () => {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center space-x-2 mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">{event.title}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{event.title}</h3>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getEventColor(event.type)}`}>
                           {event.type.replace('_', ' ')}
                         </span>
                         {event.is_recurring && (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border border-purple-200 dark:border-purple-700">
                             Recurring
                           </span>
                         )}
                       </div>
-                      <p className="text-gray-600 mb-2">{formatDate(event.date)}</p>
+                      <p className="text-gray-600 dark:text-gray-400 mb-2">{formatDate(event.date)}</p>
                       {event.description && (
-                        <p className="text-gray-700">{event.description}</p>
+                        <p className="text-gray-700 dark:text-gray-300">{event.description}</p>
                       )}
                     </div>
                   </div>
@@ -342,14 +416,14 @@ const CompanyCalendar = () => {
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => handleEdit(event)}
-                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
                         title="Edit Event"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => deleteEvent(event.id)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                         title="Delete Event"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -366,59 +440,59 @@ const CompanyCalendar = () => {
       {/* Add/Edit Event Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
             <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
                 {isEditing ? 'Edit Calendar Event' : 'Add New Calendar Event'}
               </h3>
               
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Title *
                   </label>
                   <input
                     type="text"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Description
                   </label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows="3"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Date *
                   </label>
                   <input
                     type="date"
                     value={formData.date}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Event Type
                   </label>
                   <select
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="holiday">Holiday</option>
                     <option value="special_day">Special Day</option>
@@ -435,19 +509,19 @@ const CompanyCalendar = () => {
                       onChange={(e) => setFormData({ ...formData, is_recurring: e.target.checked })}
                       className="mr-2"
                     />
-                    <span className="text-sm font-medium text-gray-700">Recurring Event</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Recurring Event</span>
                   </label>
                 </div>
 
                 {formData.is_recurring && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Recurring Pattern
                     </label>
                     <select
                       value={formData.recurring_pattern}
                       onChange={(e) => setFormData({ ...formData, recurring_pattern: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     >
                       <option value="">Select Pattern</option>
                       <option value="yearly">Yearly</option>
@@ -461,7 +535,7 @@ const CompanyCalendar = () => {
                   <button
                     type="button"
                     onClick={() => setShowModal(false)}
-                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
                   >
                     Cancel
                   </button>

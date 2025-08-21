@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { apiService, API_ENDPOINTS } from '../config/api'
 import jsPDF from 'jspdf'
@@ -20,6 +20,7 @@ import toast from 'react-hot-toast'
 
 export default function SalarySlips() {
   const navigate = useNavigate()
+  const { id: slipId } = useParams() // Get slipId from route params
   const { user } = useAuth()
   const [salarySlips, setSalarySlips] = useState([])
   const [employees, setEmployees] = useState([])
@@ -31,46 +32,104 @@ export default function SalarySlips() {
   const [showGenerateModal, setShowGenerateModal] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
   const [generatingSlip, setGeneratingSlip] = useState(false)
+  
+  // New state for individual slip view
+  const [selectedSlip, setSelectedSlip] = useState(null)
+  const [slipDetails, setSlipDetails] = useState([])
+  const [loadingSlip, setLoadingSlip] = useState(false)
+
+  // Debug logging
+  useEffect(() => {
+    console.log('🔍 SalarySlips component - slipId:', slipId, 'user role:', user?.role)
+  }, [slipId, user?.role])
 
   // Fetch salary slips and related data
-  const fetchData = async () => {
-    setLoading(true)
+  const fetchData = useCallback(async () => {
     try {
-      // Fetch salary slips
-      const slipsResponse = await apiService.get(`${API_ENDPOINTS.SALARY}/all`)
-
-      if (slipsResponse.status === 200) {
-        const slipsData = slipsResponse.data
-        setSalarySlips(slipsData.salarySlips || [])
-      }
-
-      // Fetch employees
-      const employeesResponse = await apiService.get(API_ENDPOINTS.EMPLOYEES)
+      setLoading(true)
+      
+      // Fetch employees and salary components
+      const [employeesResponse, componentsResponse] = await Promise.all([
+        apiService.get(API_ENDPOINTS.EMPLOYEES),
+        apiService.get(`${API_ENDPOINTS.SALARY}/components`)
+      ])
 
       if (employeesResponse.status === 200) {
-        const employeesData = employeesResponse.data
-        setEmployees(employeesData.employees || [])
+        setEmployees(employeesResponse.data.employees || [])
       }
-
-      // Fetch salary components
-      const componentsResponse = await apiService.get(`${API_ENDPOINTS.SALARY}/components`)
 
       if (componentsResponse.status === 200) {
-        const componentsData = componentsResponse.data
-        setSalaryComponents(componentsData.components || [])
+        setSalaryComponents(componentsResponse.data.components || [])
       }
 
+      // Fetch salary slips based on user role
+      let slipsResponse
+      if (['admin', 'hr_manager', 'hr'].includes(user.role)) {
+        // HR users see all salary slips
+        slipsResponse = await apiService.get(API_ENDPOINTS.SALARY + '/all')
+      } else {
+        // Employees see only their own slips
+        slipsResponse = await apiService.get(API_ENDPOINTS.SALARY + '/my-slips')
+      }
+
+      if (slipsResponse.status === 200) {
+        setSalarySlips(slipsResponse.data.salarySlips || [])
+      }
     } catch (error) {
       console.error('❌ Error fetching data:', error)
-      toast.error('Failed to fetch data')
+      toast.error('Failed to load data')
     } finally {
       setLoading(false)
     }
-  }
+  }, [user.role])
+
+  // Fetch individual slip details when slipId is present
+  const fetchSlipDetails = useCallback(async (slipId) => {
+    try {
+      console.log('🔍 fetchSlipDetails called with slipId:', slipId, 'user role:', user?.role)
+      setLoadingSlip(true)
+      let response
+      
+      if (['admin', 'hr_manager', 'hr'].includes(user.role)) {
+        // HR users can view any slip
+        const endpoint = `${API_ENDPOINTS.SALARY}/slip/${slipId}`
+        console.log('🔍 HR user - calling endpoint:', endpoint)
+        response = await apiService.get(endpoint)
+      } else {
+        // Employees can only view their own slips
+        const endpoint = `${API_ENDPOINTS.SALARY}/my-slip/${slipId}`
+        console.log('🔍 Employee user - calling endpoint:', endpoint)
+        response = await apiService.get(endpoint)
+      }
+
+      console.log('🔍 Response received:', response)
+      if (response.status === 200) {
+        setSelectedSlip(response.data.salarySlip)
+        setSlipDetails(response.data.details || [])
+        console.log('🔍 Slip data set:', response.data.salarySlip)
+      } else {
+        throw new Error('Failed to fetch slip details')
+      }
+    } catch (error) {
+      console.error('❌ Error fetching slip details:', error)
+      toast.error('Failed to load salary slip details')
+      navigate('/salary-slips') // Redirect back to list if error
+    } finally {
+      setLoadingSlip(false)
+    }
+  }, [user.role, navigate])
 
   useEffect(() => {
-    fetchData()
-  }, [])
+    if (!user) return // Don't fetch data if user is not authenticated
+    
+    if (slipId) {
+      // If we have a slipId, fetch that specific slip
+      fetchSlipDetails(slipId)
+    } else {
+      // Otherwise fetch all data for list view
+      fetchData()
+    }
+  }, [slipId, fetchSlipDetails, fetchData, user])
 
   const handleGenerateSalarySlip = async (formData) => {
     setGeneratingSlip(true)
@@ -80,18 +139,12 @@ export default function SalarySlips() {
         throw new Error('Authentication token not found')
       }
 
-      // Debug: Log the exact request being made
-      console.log('🔍 Making API request to:', `${API_ENDPOINTS.SALARY}/generate`)
-      console.log('🔍 Request payload:', formData)
-      console.log('🔍 Request headers:', { Authorization: `Bearer ${token}` })
-
       // Show progress message
       toast.loading('Generating salary slip... This may take a few seconds.', { duration: 0 })
 
       const response = await apiService.post(`${API_ENDPOINTS.SALARY}/generate`, formData)
 
       const result = response.data
-      console.log('🔍 API Response:', { status: response.status, data: result })
 
       if (response.status !== 200 && response.status !== 201) {
         throw new Error(result.error || 'Failed to generate salary slip')
@@ -104,22 +157,6 @@ export default function SalarySlips() {
       fetchData() // Refresh the list
     } catch (error) {
       console.error('❌ Error generating salary slip:', error)
-      
-      // Debug: Log detailed error information
-      if (error.response) {
-        console.error('🔍 Error response:', {
-          status: error.response.status,
-          statusText: error.response.statusText,
-          data: error.response.data,
-          headers: error.response.headers
-        })
-      } else if (error.request) {
-        console.error('🔍 Error request:', error.request)
-      } else {
-        console.error('🔍 Error message:', error.message)
-      }
-      
-      toast.dismiss()
       
       // Show the actual backend error message if available
       let errorMessage = 'Failed to generate salary slip'
@@ -141,13 +178,12 @@ export default function SalarySlips() {
 
   const handleDownloadSalarySlip = async (slipId) => {
     try {
-      console.log('🔄 Downloading salary slip:', slipId)
       
       const response = await apiService.get(`${API_ENDPOINTS.SALARY}/slip/${slipId}/download`, {
         responseType: 'text'
       })
 
-      console.log('📊 Download response:', response)
+      
 
       if (response.status === 200) {
         // Convert HTML to PDF using jsPDF
@@ -234,143 +270,323 @@ export default function SalarySlips() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="mr-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+              >
+                <ArrowLeft className="h-5 w-5 text-gray-600 dark:text-gray-300" />
+              </button>
               <DollarSign className="h-8 w-8 text-green-600" />
-              <h1 className="ml-3 text-2xl font-bold text-gray-900 dark:text-white">Salary Slips</h1>
+              <h1 className="ml-3 text-2xl font-bold text-gray-900 dark:text-white">
+                {slipId ? 'Salary Slip Details' : 'Salary Slips'}
+              </h1>
             </div>
-            <button
-              onClick={() => setShowGenerateModal(true)}
-              className="btn-primary flex items-center"
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              Generate Salary Slip
-            </button>
+            {!slipId && ['admin', 'hr_manager', 'hr'].includes(user.role) && (
+              <button
+                onClick={() => setShowGenerateModal(true)}
+                className="btn-primary flex items-center"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Generate Slip
+              </button>
+            )}
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* Filters */}
-        <div className="card mb-6">
-          <div className="p-5">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search by employee name or email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="input-field pl-10"
-                />
+        {/* Debug info */}
+        {slipId && (
+          <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Debug: slipId = {slipId}, selectedSlip = {selectedSlip ? 'loaded' : 'null'}, loadingSlip = {loadingSlip.toString()}
+            </p>
+          </div>
+        )}
+
+        {/* Individual Slip View */}
+        {slipId && selectedSlip ? (
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+            {loadingSlip ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+                <span className="text-gray-600 dark:text-gray-400">Loading salary slip details...</span>
               </div>
+            ) : (
+              <>
+                {/* Header */}
+                <div className="text-center mb-8 border-b border-gray-200 dark:border-gray-700 pb-6">
+                  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">SALARY SLIP</h2>
+                  <p className="text-xl text-gray-600 dark:text-gray-400">
+                    {getMonthName(selectedSlip.month)} {selectedSlip.year}
+                  </p>
+                </div>
 
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="input-field"
-              >
-                <option value="">All Months</option>
-                {Array.from({ length: 12 }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {getMonthName(i + 1)}
-                  </option>
-                ))}
-              </select>
+                {/* Employee Information */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                  <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
+                      Employee Information
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Name:</span>
+                        <span className="text-gray-900 dark:text-white">{selectedSlip.employee?.full_name || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Employee ID:</span>
+                        <span className="text-gray-900 dark:text-white">{selectedSlip.employee?.employee_id || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Department:</span>
+                        <span className="text-gray-900 dark:text-white">{selectedSlip.employee?.department || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Designation:</span>
+                        <span className="text-gray-900 dark:text-white">{selectedSlip.employee?.designation || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
 
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="input-field"
-              >
-                {Array.from({ length: 5 }, (_, i) => {
-                  const year = new Date().getFullYear() - 2 + i
-                  return (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  )
-                })}
-              </select>
+                  <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
+                      Salary Summary
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Basic Salary:</span>
+                        <span className="text-gray-900 dark:text-white font-semibold">₹{selectedSlip.basic_salary || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Gross Salary:</span>
+                        <span className="text-gray-900 dark:text-white font-semibold">₹{selectedSlip.gross_salary || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Net Salary:</span>
+                        <span className="text-gray-900 dark:text-white font-semibold text-green-600 dark:text-green-400">₹{selectedSlip.net_salary || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Unpaid Leaves:</span>
+                        <span className="text-gray-900 dark:text-white">{selectedSlip.unpaid_leaves || 0} days</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
+                {/* Salary Breakdown */}
+                {slipDetails.length > 0 && (
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
+                      Salary Breakdown
+                    </h3>
+                    
+                    {/* Additions */}
+                    {slipDetails.filter(d => d.component_type === 'addition').length > 0 && (
+                      <div className="mb-6">
+                        <h4 className="text-md font-medium text-gray-700 dark:text-gray-300 mb-3 bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
+                          Additions
+                        </h4>
+                        <div className="space-y-2">
+                          {slipDetails.filter(d => d.component_type === 'addition').map((detail, index) => (
+                            <div key={index} className="flex justify-between items-center py-2 px-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                              <span className="text-gray-700 dark:text-gray-300">{detail.component_name}</span>
+                              <span className="text-green-600 dark:text-green-400 font-semibold">+₹{detail.amount}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Deductions */}
+                    {slipDetails.filter(d => d.component_type === 'deduction').length > 0 && (
+                      <div className="mb-6">
+                        <h4 className="text-md font-medium text-gray-700 dark:text-gray-300 mb-3 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+                          Deductions
+                        </h4>
+                        <div className="space-y-2">
+                          {slipDetails.filter(d => d.component_type === 'deduction').map((detail, index) => (
+                            <div key={index} className="flex justify-between items-center py-2 px-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                              <span className="text-gray-700 dark:text-gray-300">{detail.component_name}</span>
+                              <span className="text-red-600 dark:text-red-400 font-semibold">-₹{detail.amount}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-between items-center pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={() => navigate('/salary-slips')}
+                    className="btn-secondary flex items-center"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to List
+                  </button>
+                  <button
+                    onClick={() => handleDownloadSalarySlip(selectedSlip.id)}
+                    className="btn-primary flex items-center"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ) : slipId && loadingSlip ? (
+          /* Loading state for individual slip */
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+              <span className="text-gray-600 dark:text-gray-400">Loading salary slip details...</span>
+            </div>
+          </div>
+        ) : slipId && !selectedSlip && !loadingSlip ? (
+          /* Error state for individual slip */
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+            <div className="text-center py-12">
+              <DollarSign className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Salary Slip Not Found</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-6">
+                The requested salary slip could not be found or you don't have permission to view it.
+              </p>
               <button
-                onClick={fetchData}
-                className="btn-secondary flex items-center justify-center"
+                onClick={() => navigate('/salary-slips')}
+                className="btn-secondary flex items-center mx-auto"
               >
-                <Filter className="h-5 w-5 mr-2" />
-                Refresh
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Salary Slips
               </button>
             </div>
           </div>
-        </div>
+        ) : (
+          /* List View - existing code */
+          <>
+            {/* Filters */}
+            <div className="card mb-6">
+              <div className="p-5">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by employee name or email..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="input-field pl-10"
+                    />
+                  </div>
 
-        {/* Salary Slips List */}
-        <div className="card">
-          <div className="p-5">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="loading-spinner h-8 w-8"></div>
-              </div>
-            ) : filteredSlips.length === 0 ? (
-              <div className="text-center py-12">
-                <DollarSign className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                  No salary slips found
-                </h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  {searchTerm || selectedMonth ? 'Try adjusting your search or filters' : 'Generate your first salary slip'}
-                </p>
-                {!searchTerm && !selectedMonth && (
-                  <button
-                    onClick={() => setShowGenerateModal(true)}
-                    className="btn-primary"
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="input-field"
                   >
-                    <Plus className="h-5 w-5 mr-2" />
-                    Generate First Salary Slip
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredSlips.map((slip) => (
-                  <div key={slip.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-r from-green-600 to-green-700 flex items-center justify-center">
-                          <DollarSign className="h-6 w-6 text-white" />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900 dark:text-white">
-                            {slip.employee?.full_name || 'Unknown Employee'}
-                          </h3>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">
-                            {getMonthName(slip.month)} {slip.year} • {slip.employee?.department || 'N/A'}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-gray-900 dark:text-white">
-                          {formatCurrency(slip.net_salary)}
-                        </p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Net Salary
-                        </p>
-                      </div>
+                    <option value="">All Months</option>
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {getMonthName(i + 1)}
+                      </option>
+                    ))}
+                  </select>
 
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handleViewSlip(slip.id)}
-                          className="btn-secondary flex items-center"
-                        >
-                          <Eye className="h-4 w-4 mr-2" />
-                          View
-                        </button>
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                    className="input-field"
+                  >
+                    {Array.from({ length: 5 }, (_, i) => {
+                      const year = new Date().getFullYear() - 2 + i
+                      return (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      )
+                    })}
+                  </select>
+
+                  <button
+                    onClick={fetchData}
+                    className="btn-secondary flex items-center justify-center"
+                  >
+                    <Filter className="h-5 w-5 mr-2" />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Salary Slips List */}
+            <div className="card">
+              <div className="p-5">
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="loading-spinner h-8 w-8"></div>
+                  </div>
+                ) : filteredSlips.length === 0 ? (
+                  <div className="text-center py-12">
+                    <DollarSign className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                      No salary slips found
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-400 mb-6">
+                      {searchTerm || selectedMonth ? 'Try adjusting your search or filters' : 'Generate your first salary slip'}
+                    </p>
+                    {!searchTerm && !selectedMonth && (
+                      <button
+                        onClick={() => setShowGenerateModal(true)}
+                        className="btn-primary"
+                      >
+                        <Plus className="h-5 w-5 mr-2" />
+                        Generate First Salary Slip
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filteredSlips.map((slip) => (
+                      <div key={slip.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-r from-green-600 to-green-700 flex items-center justify-center">
+                              <DollarSign className="h-6 w-6 text-white" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900 dark:text-white">
+                                {slip.employee?.full_name || 'Unknown Employee'}
+                              </h3>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">
+                                {getMonthName(slip.month)} {slip.year} • {slip.employee?.department || 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-gray-900 dark:text-white">
+                              {formatCurrency(slip.net_salary)}
+                            </p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              Net Salary
+                            </p>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleViewSlip(slip.id)}
+                              className="btn-secondary flex items-center"
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View
+                            </button>
                                                  <button 
                            onClick={() => handleDownloadSalarySlip(slip.id)}
                            className="btn-secondary flex items-center"
@@ -378,41 +594,43 @@ export default function SalarySlips() {
                            <Download className="h-4 w-4 mr-2" />
                            Download
                          </button>
-                      </div>
-                    </div>
+                          </div>
+                        </div>
 
-                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <p className="text-gray-600 dark:text-gray-400">Gross Salary</p>
-                        <p className="font-semibold text-gray-900 dark:text-white">
-                          {formatCurrency(slip.gross_salary)}
-                        </p>
+                        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-gray-600 dark:text-gray-400">Gross Salary</p>
+                            <p className="font-semibold text-gray-900 dark:text-white">
+                              {formatCurrency(slip.gross_salary)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600 dark:text-gray-400">Additions</p>
+                            <p className="font-semibold text-green-600 dark:text-green-400">
+                              +{formatCurrency(slip.total_additions)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600 dark:text-gray-400">Deductions</p>
+                            <p className="font-semibold text-red-600 dark:text-red-400">
+                              -{formatCurrency(slip.total_deductions)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600 dark:text-gray-400">Unpaid Leaves</p>
+                            <p className="font-semibold text-gray-900 dark:text-white">
+                              {slip.unpaid_leaves} days
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-gray-600 dark:text-gray-400">Additions</p>
-                        <p className="font-semibold text-green-600 dark:text-green-400">
-                          +{formatCurrency(slip.total_additions)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600 dark:text-gray-400">Deductions</p>
-                        <p className="font-semibold text-red-600 dark:text-red-400">
-                          -{formatCurrency(slip.total_deductions)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600 dark:text-gray-400">Unpaid Leaves</p>
-                        <p className="font-semibold text-gray-900 dark:text-white">
-                          {slip.unpaid_leaves} days
-                        </p>
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </>
+        )}
       </main>
 
       {/* Generate Salary Slip Modal */}
@@ -446,16 +664,6 @@ function GenerateSalarySlipModal({ employees, salaryComponents, onGenerate, onCl
       toast.error('Please select an employee')
       return
     }
-    
-    // Debug: Log the exact data being sent
-    console.log('🔍 Form data being submitted:', formData)
-    console.log('🔍 Data types:', {
-      employee_id: typeof formData.employee_id,
-      month: typeof formData.month,
-      year: typeof formData.year,
-      additions: Array.isArray(formData.additions),
-      deductions: Array.isArray(formData.deductions)
-    })
     
     onGenerate(formData)
   }

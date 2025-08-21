@@ -23,7 +23,9 @@ import {
   RefreshCw,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Clock,
+  CreditCard
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { apiService, API_ENDPOINTS } from '../config/api'
@@ -47,56 +49,42 @@ const Employees = () => {
   const fetchEmployees = async () => {
     setLoading(true)
     try {
-      // Try main endpoint first
-      let employees = []
-      try {
-        const response = await apiService.get(API_ENDPOINTS.USERS + '/employees')
+      const response = await apiService.get(API_ENDPOINTS.USERS + '/employees')
 
-        if (response.status === 200) {
-          const data = response.data
-          employees = data.employees || []
-        } else {
-          // Fallback to mock data
-          const mockResponse = await apiService.get(API_ENDPOINTS.USERS + '/mock/employees')
-          if (mockResponse.status === 200) {
-            const mockData = mockResponse.data
-            employees = mockData.employees || []
-          }
-        }
-      } catch (error) {
-        // Use mock data as fallback
-        employees = [
-          {
-            id: 'emp-1',
-            full_name: 'John Doe',
-            email: 'john.doe@company.com',
-            department: 'Engineering',
-            designation: 'Senior Developer',
-            salary: 75000,
-            joining_date: '2023-01-15',
-            phone_number: '+1234567890',
-            leave_balance: 15,
-            created_at: '2023-01-15T00:00:00Z'
-          },
-          {
-            id: 'emp-2',
-            full_name: 'Jane Smith',
-            email: 'jane.smith@company.com',
-            department: 'Marketing',
-            designation: 'Marketing Manager',
-            salary: 65000,
-            joining_date: '2023-02-20',
-            phone_number: '+1234567891',
-            leave_balance: 20,
-            created_at: '2023-02-20T00:00:00Z'
-          }
-        ]
+      if (response.status === 200) {
+        const data = response.data
+        const employees = data.employees || []
+        
+        // Clean and transform employee data
+        const cleanedEmployees = employees.map(emp => ({
+          id: emp.id,
+          full_name: emp.full_name || emp.user?.full_name || 'N/A',
+          email: emp.email || emp.user?.email || 'N/A',
+          department: emp.department || 'N/A',
+          designation: emp.designation || 'N/A',
+          salary: emp.salary || 0,
+          joining_date: emp.joining_date || emp.created_at || null,
+          phone_number: emp.phone_number || 'N/A',
+          address: emp.address || 'N/A',
+          emergency_contact: emp.emergency_contact || 'N/A',
+          pan_number: emp.pan_number || 'N/A',
+          bank_account: emp.bank_account || 'N/A',
+          leave_balance: emp.leave_balance || 0,
+          status: emp.user?.is_active ? 'active' : 'inactive',
+          team_lead: emp.team_lead?.full_name || 'N/A',
+          created_at: emp.created_at || new Date().toISOString()
+        }))
+        
+        setEmployees(cleanedEmployees)
+        setFilteredEmployees(cleanedEmployees)
+      } else {
+        throw new Error('Failed to fetch employees')
       }
-
-      setEmployees(employees)
-      setFilteredEmployees(employees)
     } catch (error) {
+      console.error('Failed to fetch employees:', error)
       toast.error('Failed to fetch employees')
+      setEmployees([])
+      setFilteredEmployees([])
     } finally {
       setLoading(false)
     }
@@ -142,6 +130,10 @@ const Employees = () => {
           aValue = parseFloat(a.salary) || 0
           bValue = parseFloat(b.salary) || 0
           break
+        case 'leave_balance':
+          aValue = a.leave_balance || 0
+          bValue = b.leave_balance || 0
+          break
         default:
           aValue = a.full_name?.toLowerCase() || ''
           bValue = b.full_name?.toLowerCase() || ''
@@ -182,6 +174,43 @@ const Employees = () => {
   const handleEditEmployee = (employee) => {
     // Navigate to edit page or open edit modal
     navigate(`/edit-employee/${employee.id}`)
+  }
+
+  const handleExportEmployees = () => {
+    try {
+      // Create CSV content
+      const headers = ['Name', 'Email', 'Department', 'Designation', 'Salary', 'Joining Date', 'Phone', 'Status', 'Leave Balance']
+      const csvContent = [
+        headers.join(','),
+        ...filteredEmployees.map(emp => [
+          `"${emp.full_name}"`,
+          `"${emp.email}"`,
+          `"${emp.department}"`,
+          `"${emp.designation}"`,
+          `"${emp.salary || 'N/A'}"`,
+          `"${emp.joining_date ? formatDate(emp.joining_date) : 'N/A'}"`,
+          `"${emp.phone_number !== 'N/A' ? emp.phone_number : ''}"`,
+          `"${emp.status}"`,
+          `"${emp.leave_balance} days"`
+        ].join(','))
+      ].join('\n')
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', `employees_${new Date().toISOString().split('T')[0]}.csv`)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      toast.success('Employee list exported successfully!')
+    } catch (error) {
+      console.error('Export error:', error)
+      toast.error('Failed to export employee list')
+    }
   }
 
   const getDepartments = () => {
@@ -243,6 +272,13 @@ const Employees = () => {
             <Plus className="h-5 w-5 mr-2" />
             Add Employee
           </button>
+          <button
+            onClick={handleExportEmployees}
+            className="btn-primary flex items-center"
+          >
+            <Download className="h-5 w-5 mr-2" />
+            Export
+          </button>
         </div>
       </div>
 
@@ -284,6 +320,7 @@ const Employees = () => {
               <option value="department">Sort by Department</option>
               <option value="joining_date">Sort by Joining Date</option>
               <option value="salary">Sort by Salary</option>
+              <option value="leave_balance">Sort by Leave Balance</option>
             </select>
 
             {/* Sort Order */}
@@ -295,6 +332,27 @@ const Employees = () => {
               <option value="asc">Ascending</option>
               <option value="desc">Descending</option>
             </select>
+          </div>
+          
+          {/* Results Summary */}
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
+              <span>
+                Showing {filteredEmployees.length} of {employees.length} employees
+                {selectedDepartment && ` in ${selectedDepartment}`}
+                {searchTerm && ` matching "${searchTerm}"`}
+              </span>
+              <div className="flex items-center space-x-4">
+                <span className="flex items-center">
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
+                  {employees.filter(emp => emp.status === 'active').length} Active
+                </span>
+                <span className="flex items-center">
+                  <XCircle className="h-4 w-4 text-gray-500 mr-1" />
+                  {employees.filter(emp => emp.status === 'inactive').length} Inactive
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -334,6 +392,7 @@ const Employees = () => {
                     <th>Department</th>
                     <th>Salary</th>
                     <th>Joining Date</th>
+                    <th>Leave Balance</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
@@ -353,6 +412,11 @@ const Employees = () => {
                             <p className="text-sm text-gray-500 dark:text-gray-400">
                               {employee.designation}
                             </p>
+                            {employee.team_lead !== 'N/A' && (
+                              <p className="text-xs text-blue-600 dark:text-blue-400">
+                                Team: {employee.team_lead}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -360,7 +424,7 @@ const Employees = () => {
                         <div>
                           <p className="text-gray-900 dark:text-white">{employee.email}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {employee.phone_number || 'No phone'}
+                            {employee.phone_number !== 'N/A' ? employee.phone_number : 'No phone'}
                           </p>
                         </div>
                       </td>
@@ -372,8 +436,19 @@ const Employees = () => {
                         {employee.joining_date ? formatDate(employee.joining_date) : 'N/A'}
                       </td>
                       <td>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(employee.status || 'active')}`}>
-                          {employee.status || 'Active'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          employee.leave_balance > 10 
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : employee.leave_balance > 5
+                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        }`}>
+                          {employee.leave_balance} days
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(employee.status)}`}>
+                          {employee.status === 'active' ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td>
@@ -397,8 +472,9 @@ const Employees = () => {
                             className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
                             title="Fixed Deductions"
                           >
-                            <DollarSign size={16} />
+                            <CreditCard size={16} />
                           </button>
+
                           <button 
                             onClick={() => {
                               setEmployeeToDelete(employee)
@@ -491,11 +567,11 @@ const Employees = () => {
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Phone</label>
-                      <p className="text-gray-900 dark:text-white">{selectedEmployee.phone_number || 'N/A'}</p>
+                      <p className="text-gray-900 dark:text-white">{selectedEmployee.phone_number !== 'N/A' ? selectedEmployee.phone_number : 'Not provided'}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Address</label>
-                      <p className="text-gray-900 dark:text-white">{selectedEmployee.address || 'N/A'}</p>
+                      <p className="text-gray-900 dark:text-white">{selectedEmployee.address !== 'N/A' ? selectedEmployee.address : 'Not provided'}</p>
                     </div>
                   </div>
                 </div>
@@ -514,13 +590,13 @@ const Employees = () => {
                     <div>
                       <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Salary</label>
                       <p className="text-gray-900 dark:text-white">
-                        {selectedEmployee.salary ? formatSalary(selectedEmployee.salary) : 'N/A'}
+                        {selectedEmployee.salary ? formatSalary(selectedEmployee.salary) : 'Not specified'}
                       </p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Joining Date</label>
                       <p className="text-gray-900 dark:text-white">
-                        {selectedEmployee.joining_date ? formatDate(selectedEmployee.joining_date) : 'N/A'}
+                        {selectedEmployee.joining_date ? formatDate(selectedEmployee.joining_date) : 'Not specified'}
                       </p>
                     </div>
                   </div>
@@ -532,19 +608,43 @@ const Employees = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Emergency Contact</label>
-                    <p className="text-gray-900 dark:text-white">{selectedEmployee.emergency_contact || 'N/A'}</p>
+                    <p className="text-gray-900 dark:text-white">{selectedEmployee.emergency_contact !== 'N/A' ? selectedEmployee.emergency_contact : 'Not provided'}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500 dark:text-gray-400">PAN Number</label>
-                    <p className="text-gray-900 dark:text-white">{selectedEmployee.pan_number || 'N/A'}</p>
+                    <p className="text-gray-900 dark:text-white">{selectedEmployee.pan_number !== 'N/A' ? selectedEmployee.pan_number : 'Not provided'}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Leave Balance</label>
-                    <p className="text-gray-900 dark:text-white">{selectedEmployee.leave_balance || 0} days</p>
+                    <p className="text-gray-900 dark:text-white">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        selectedEmployee.leave_balance > 10 
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                          : selectedEmployee.leave_balance > 5
+                          ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                          : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                      }`}>
+                        {selectedEmployee.leave_balance} days
+                      </span>
+                    </p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Bank Account</label>
-                    <p className="text-gray-900 dark:text-white">{selectedEmployee.bank_account || 'N/A'}</p>
+                    <p className="text-gray-900 dark:text-white">{selectedEmployee.bank_account !== 'N/A' ? selectedEmployee.bank_account : 'Not provided'}</p>
+                  </div>
+                  {selectedEmployee.team_lead !== 'N/A' && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Team Lead</label>
+                      <p className="text-gray-900 dark:text-white">{selectedEmployee.team_lead}</p>
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</label>
+                    <p className="text-gray-900 dark:text-white">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedEmployee.status)}`}>
+                        {selectedEmployee.status === 'active' ? 'Active' : 'Inactive'}
+                      </span>
+                    </p>
                   </div>
                 </div>
               </div>

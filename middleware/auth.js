@@ -26,7 +26,7 @@ const authenticateToken = async (req, res, next) => {
 
 
     if (!token) {
-      console.log('❌ No token provided');
+      console.log('No token provided');
       return res.status(401).json({ error: 'Access token required' });
     }
 
@@ -40,7 +40,8 @@ const authenticateToken = async (req, res, next) => {
     }
 
     // Get user details from our users table using admin client to bypass RLS
-    console.log('🔍 Fetching user data from database for ID:', user.id);
+    console.log('🔍 Fetching user data for ID:', user.id);
+
     const { data: userData, error: userError } = await retryOperation(async () => {
       return await supabaseAdmin
         .from('users')
@@ -50,7 +51,7 @@ const authenticateToken = async (req, res, next) => {
     });
 
     if (userError || !userData) {
-      console.log('❌ User not found in database, creating user record...');
+      console.log('User not found in database, creating user record...');
       // Get or create company with retry
       let { data: company } = await retryOperation(async () => {
         return await supabaseAdmin
@@ -93,11 +94,12 @@ const authenticateToken = async (req, res, next) => {
 
       req.user = newUser;
     } else {
+
       console.log('✅ User found in database:', { 
         id: userData.id, 
-        company_id: userData.company_id, 
-        role: userData.role,
-        email: userData.email 
+        email: userData.email, 
+        role: userData.role, 
+        company_id: userData.company_id 
       });
       req.user = userData;
     }
@@ -106,7 +108,7 @@ const authenticateToken = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error('❌ Authentication error:', error);
+    console.error('Authentication error:', error);
     if (error.code === 'UND_ERR_CONNECT_TIMEOUT' || error.message.includes('timeout')) {
       return res.status(503).json({ error: 'Service temporarily unavailable. Please try again.' });
     }
@@ -125,9 +127,18 @@ const requireRole = (allowedRoles) => {
     const userRole = req.user.role.toLowerCase();
     const allowedRolesLower = allowedRoles.map(role => role.toLowerCase());
     
+    // Debug logging for role issues
+    console.log('Role check debug:', {
+      userRole,
+      allowedRoles,
+      allowedRolesLower,
+      hasAccess: allowedRolesLower.includes(userRole),
+      userObject: { id: req.user.id, email: req.user.email, role: req.user.role, company_id: req.user.company_id }
+    });
+    
     if (!allowedRolesLower.includes(userRole)) {
       return res.status(403).json({ 
-        error: `Access denied. Required roles: ${allowedRoles.join(', ')}` 
+        error: `Access denied. Required roles: ${allowedRoles.join(', ')}. Your role: ${req.user.role}` 
       });
     }
 
@@ -141,6 +152,15 @@ const requireHRManager = requireRole(['hr_manager', 'admin']);
 const requireAdmin = requireRole(['admin']);
 const requireTeamLead = requireRole(['team_lead', 'hr', 'hr_manager', 'admin']);
 const requireEmployee = requireRole(['employee', 'team_lead', 'hr', 'hr_manager', 'admin']);
+
+// Debug: Log all role definitions
+console.log('🔧 Role middleware definitions:', {
+  requireHR: ['hr', 'hr_manager', 'admin'],
+  requireHRManager: ['hr_manager', 'admin'],
+  requireAdmin: ['admin'],
+  requireTeamLead: ['team_lead', 'hr', 'hr_manager', 'admin'],
+  requireEmployee: ['employee', 'team_lead', 'hr', 'hr_manager', 'admin']
+});
 
 // Middleware to ensure users can only access their own company data
 const validateCompanyAccess = async (req, res, next) => {
@@ -203,7 +223,7 @@ const validateEmployeeAccess = async (req, res, next) => {
         hasAccess = employee.company_id === user.company_id;
         break;
       case 'hr':
-        hasAccess = employee.created_by === user.id || employee.company_id === user.company_id;
+        hasAccess = employee.company_id === user.company_id; // HR can access all employees in their company
         break;
       case 'team_lead':
         hasAccess = employee.team_lead_id === user.id;

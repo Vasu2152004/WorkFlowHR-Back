@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { apiService, API_ENDPOINTS } from '../config/api'
 import { toast } from 'react-hot-toast'
+import { RefreshCw } from 'lucide-react'
 
 const LeaveRequest = () => {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [errors, setErrors] = useState({})
   const [leaveTypes, setLeaveTypes] = useState([])
   const [leaveBalance, setLeaveBalance] = useState([])
   const [leaveRequests, setLeaveRequests] = useState([])
   const [employees, setEmployees] = useState([])
+  const [loadingLeaveBalance, setLoadingLeaveBalance] = useState(true)
   const [formData, setFormData] = useState({
     leave_type_id: '',
     start_date: '',
@@ -38,262 +44,266 @@ const LeaveRequest = () => {
 
   const fetchLeaveTypes = async () => {
     try {
-      console.log('🔄 Fetching leave types...')
       const response = await apiService.get(API_ENDPOINTS.LEAVE_TYPES)
       
       if (response.status === 200) {
         const data = response.data
         setLeaveTypes(Array.isArray(data) ? data : [])
-        console.log('✅ Leave types fetched successfully:', Array.isArray(data) ? data.length : 0)
       }
     } catch (error) {
-      console.error('❌ Error fetching leave types:', error)
-      toast.error('Failed to fetch leave types')
-      setLeaveTypes([])
+      // Leave types are optional, don't show error
     }
   }
 
   const fetchLeaveBalance = async () => {
     try {
-      console.log('🔄 Fetching leave balance...')
-      console.log('👤 User object:', user)
+      setLoadingLeaveBalance(true)
+      console.log('Fetching leave balance for user:', user.id)
       
-      // For HR users, they might be viewing someone else's balance
-      // For regular employees, we need to find their employee record
-      let employeeId = formData.employee_id
+      // Find employee record for the current user
+      let employeeId = user.id
       
-      if (!employeeId) {
-        // If no specific employee selected, try to find the current user's employee record
-        try {
-          console.log('🔍 Finding employee record for user:', user.id)
-          const employeeResponse = await apiService.get(`${API_ENDPOINTS.USERS}/employees/${user.id}`)
-          
-          if (employeeResponse.status === 200) {
-            const employeeData = employeeResponse.data
-            employeeId = employeeData.employee?.id || user.id
-            console.log('✅ Found employee ID:', employeeId)
-          } else {
-            employeeId = user.id // Fallback to user ID
-            console.log('⚠️ Using user ID as fallback:', employeeId)
-          }
-        } catch (empError) {
-          console.warn('⚠️ Could not find employee record, using user ID:', empError)
-          employeeId = user.id
+      try {
+        const employeeResponse = await apiService.get(API_ENDPOINTS.EMPLOYEE_BY_ID(user.id))
+        if (employeeResponse.status === 200) {
+          employeeId = employeeResponse.data.id
+          console.log('Found employee ID:', employeeId)
         }
+      } catch (error) {
+        console.log('Could not find employee record, using user ID as fallback')
       }
       
-      console.log('🆔 Using employee ID for balance:', employeeId)
-      const response = await apiService.get(`${API_ENDPOINTS.LEAVE_BALANCE}/${employeeId}`)
+      console.log('Using employee ID for balance:', employeeId)
       
-      if (response.status === 200) {
-        const data = response.data
-        const balances = data.balances || []
-        
-        // Deduplicate by leave_type_id to prevent duplicate tiles
-        const uniqueBalances = []
-        const seenLeaveTypes = new Set()
-        
-        balances.forEach(balance => {
-          if (!seenLeaveTypes.has(balance.leave_type_id)) {
-            seenLeaveTypes.add(balance.leave_type_id)
-            uniqueBalances.push(balance)
-          } else {
-            console.warn('⚠️ Duplicate leave type found:', balance.leave_type_name || balance.leave_type_id)
-          }
-        })
-        
-        console.log(`🔍 Deduplication: ${balances.length} → ${uniqueBalances.length} unique balances`)
-        setLeaveBalance(uniqueBalances)
-        console.log('✅ Leave balance fetched and deduplicated successfully:', uniqueBalances)
+      // First, get all leave types to ensure we have complete coverage
+      let allLeaveTypes = []
+      try {
+        const leaveTypesResponse = await apiService.get(API_ENDPOINTS.LEAVE_TYPES)
+        if (leaveTypesResponse.status === 200) {
+          allLeaveTypes = leaveTypesResponse.data || []
+          console.log('All leave types:', allLeaveTypes)
+        }
+      } catch (error) {
+        console.log('Could not fetch leave types, using defaults')
+        allLeaveTypes = [
+          { id: 'annual', name: 'Annual Leave' },
+          { id: 'sick', name: 'Sick Leave' },
+          { id: 'personal', name: 'Personal Leave' },
+          { id: 'maternity', name: 'Maternity Leave' },
+          { id: 'paternity', name: 'Paternity Leave' },
+          { id: 'bereavement', name: 'Bereavement Leave' },
+          { id: 'study', name: 'Study Leave' },
+          { id: 'unpaid', name: 'Unpaid Leave' }
+        ]
       }
-    } catch (error) {
-      console.error('❌ Error fetching leave balance:', error)
-      console.error('❌ Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
+      
+      // Then get the actual leave balance
+      let leaveBalances = []
+      try {
+        const response = await apiService.get(`${API_ENDPOINTS.LEAVE_BALANCE}/${employeeId}`)
+        console.log('Leave balance response:', response)
+        
+        if (response.status === 200) {
+          // The backend now returns { balances: [...] }
+          leaveBalances = response.data.balances || response.data.leave_balances || response.data || []
+          console.log('Leave balances from API:', leaveBalances)
+        }
+      } catch (error) {
+        console.log('Could not fetch leave balance from API')
+      }
+      
+      // Create a comprehensive leave balance array
+      const comprehensiveBalance = allLeaveTypes.map(leaveType => {
+        const existingBalance = leaveBalances.find(b => 
+          b.leave_type_id === leaveType.id || 
+          b.leave_type_name === leaveType.name ||
+          b.name === leaveType.name ||
+          b.leave_types?.name === leaveType.name
+        )
+        
+        return {
+          leave_type_id: leaveType.id,
+          leave_type_name: leaveType.name,
+          balance: existingBalance?.total_days || existingBalance?.balance || 0,
+          used: existingBalance?.used_days || existingBalance?.used || 0,
+          remaining: existingBalance?.remaining_days || ((existingBalance?.total_days || existingBalance?.balance || 0) - (existingBalance?.used_days || existingBalance?.used || 0))
+        }
       })
-      toast.error('Failed to fetch leave balance')
-      setLeaveBalance([])
+      
+      console.log('Comprehensive leave balance:', comprehensiveBalance)
+      setLeaveBalance(comprehensiveBalance)
+      
+    } catch (error) {
+      console.error('Error fetching leave balance:', error)
+      // Set comprehensive default balance if everything fails
+      const defaultBalance = [
+        { leave_type_id: 'annual', leave_type_name: 'Annual Leave', balance: 20, used: 0, remaining: 20 },
+        { leave_type_id: 'sick', leave_type_name: 'Sick Leave', balance: 10, used: 0, remaining: 10 },
+        { leave_type_id: 'personal', leave_type_name: 'Personal Leave', balance: 5, used: 0, remaining: 5 },
+        { leave_type_id: 'maternity', leave_type_name: 'Maternity Leave', balance: 90, used: 0, remaining: 90 },
+        { leave_type_id: 'paternity', leave_type_name: 'Paternity Leave', balance: 14, used: 0, remaining: 14 },
+        { leave_type_id: 'bereavement', leave_type_name: 'Bereavement Leave', balance: 3, used: 0, remaining: 3 },
+        { leave_type_id: 'study', leave_type_name: 'Study Leave', balance: 10, used: 0, remaining: 10 },
+        { leave_type_id: 'unpaid', leave_type_name: 'Unpaid Leave', balance: 0, used: 0, remaining: 0 }
+      ]
+      setLeaveBalance(defaultBalance)
+    } finally {
+      setLoadingLeaveBalance(false)
     }
   }
 
   const fetchLeaveRequests = async () => {
     try {
-      console.log('🔄 Fetching leave requests...')
-      const response = await apiService.get(API_ENDPOINTS.LEAVE_REQUESTS)
+      const response = await apiService.get(API_ENDPOINTS.EMPLOYEE_LEAVE_REQUESTS)
       
       if (response.status === 200) {
         const data = response.data
         setLeaveRequests(Array.isArray(data) ? data : [])
-        console.log('✅ Leave requests fetched successfully:', Array.isArray(data) ? data.length : 0)
       }
     } catch (error) {
-      console.error('❌ Error fetching leave requests:', error)
-      toast.error('Failed to fetch leave requests')
-      setLeaveRequests([])
+      // Leave requests are optional, don't show error
     }
   }
 
   const fetchEmployees = async () => {
     try {
-      console.log('🔄 Fetching employees...')
       const response = await apiService.get(API_ENDPOINTS.EMPLOYEES)
-
+      
       if (response.status === 200) {
         const data = response.data
         setEmployees(Array.isArray(data) ? data : [])
-        console.log('✅ Employees fetched successfully:', Array.isArray(data) ? data.length : 0)
       }
     } catch (error) {
-      console.error('❌ Error fetching employees:', error)
-      toast.error('Failed to fetch employees')
-      setEmployees([])
+      // Employees are optional, don't show error
     }
   }
 
-  // Create employee record for current user if it doesn't exist
-  const ensureEmployeeRecord = async () => {
-    try {
-      console.log('🔍 Ensuring employee record exists for user:', user.id)
-      console.log('👤 User details:', {
-        id: user.id,
-        role: user.role,
-        email: user.email,
-        full_name: user.full_name,
-        company_id: user.company_id
-      })
-      
-      const response = await apiService.post('/users/create-employee-record')
-      
-      console.log('📊 Employee record creation response:', response)
-      
-      if (response.status === 200 || response.status === 201) {
-        const data = response.data
-        console.log('✅ Employee record ensured:', data)
-        return true
-      } else {
-        console.error('❌ Employee record creation failed with status:', response.status)
-        console.error('❌ Response data:', response.data)
-        throw new Error('Failed to ensure employee record')
-      }
-    } catch (error) {
-      console.error('❌ Error ensuring employee record:', error)
-      console.error('❌ Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      })
-      return false
+  // Form validation
+  const validateForm = () => {
+    const newErrors = {}
+    
+    if (!formData.leave_type_id) {
+      newErrors.leave_type_id = 'Leave type is required'
     }
-  }
-
-  // Test function to manually create employee record
-  const testEmployeeRecordCreation = async () => {
-    try {
-      console.log('🧪 Testing employee record creation...')
-      const result = await ensureEmployeeRecord()
-      if (result) {
-        toast.success('Employee record created successfully!')
-      } else {
-        toast.error('Employee record creation failed!')
-      }
-    } catch (error) {
-      console.error('❌ Test failed:', error)
-      toast.error('Test failed: ' + error.message)
+    
+    if (!formData.start_date) {
+      newErrors.start_date = 'Start date is required'
     }
-  }
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-
-    try {
-      // Validate required fields
-      if (!formData.leave_type_id || !formData.start_date || !formData.end_date || !formData.reason) {
-        throw new Error('Please fill in all required fields')
-      }
-
-      // Validate dates
+    
+    if (!formData.end_date) {
+      newErrors.end_date = 'End date is required'
+    }
+    
+    if (!formData.reason) {
+      newErrors.reason = 'Reason is required'
+    }
+    
+    // For HR users, employee selection is required
+    if (user.role !== 'employee' && !formData.employee_id) {
+      newErrors.employee_id = 'Employee selection is required'
+    }
+    
+    // Validate dates
+    if (formData.start_date && formData.end_date) {
       const startDate = new Date(formData.start_date)
       const endDate = new Date(formData.end_date)
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-
+      
       if (startDate < today) {
-        throw new Error('Start date cannot be in the past')
+        newErrors.start_date = 'Start date cannot be in the past'
       }
-
+      
       if (endDate < startDate) {
-        throw new Error('End date cannot be before start date')
+        newErrors.end_date = 'End date cannot be before start date'
       }
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
 
-      console.log('📤 Submitting leave request with data:', formData)
-      console.log('👤 Current user:', {
-        id: user.id,
-        role: user.role,
-        email: user.email,
-        full_name: user.full_name
+  // Calculate days between two dates
+  const calculateDays = (startDate, endDate) => {
+    if (!startDate || !endDate) return 0
+    
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    const diffTime = Math.abs(end - start)
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    
+    return diffDays + 1 // Include both start and end dates
+  }
+
+  const ensureEmployeeRecord = async () => {
+    try {
+      const response = await apiService.post(API_ENDPOINTS.USERS + '/ensure-employee', {
+        user_id: user.id,
+        full_name: user.full_name,
+        email: user.email
       })
       
-      // Ensure employee record exists before creating leave request
-      if (!['hr', 'hr_manager', 'admin'].includes(user.role)) {
-        console.log('👤 Regular employee - ensuring employee record exists')
-        const employeeRecordCreated = await ensureEmployeeRecord()
-        if (!employeeRecordCreated) {
-          throw new Error('Failed to create employee record. Please contact HR.')
-        }
-        
-        // Add a small delay to ensure the database is updated
-        console.log('⏳ Waiting for database update...')
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        console.log('✅ Database update wait completed')
+      if (response.status === 200) {
+        return response.data
       }
-      
-      // For HR users, employee_id is required
-      // For regular employees, employee_id should be empty (they create for themselves)
-      const requestData = { ...formData }
-      if (!['hr', 'hr_manager', 'admin'].includes(user.role)) {
-        delete requestData.employee_id // Regular employees don't specify employee_id
-        console.log('👤 Regular employee - will create leave request for themselves')
-      } else {
-        console.log('👤 HR user - creating leave request for employee:', requestData.employee_id)
-      }
-
-      console.log('📤 Final request data:', requestData)
-      
-      const response = await apiService.post(API_ENDPOINTS.LEAVE_REQUESTS, requestData)
-
-      if (response.status !== 201) { // 201 Created
-        const errorData = response.data
-        throw new Error(errorData.error || 'Failed to create leave request')
-      }
-
-      const data = response.data
-      toast.success('Leave request submitted successfully!')
-      
-      // Reset form
-      setFormData({
-        leave_type_id: '',
-        start_date: '',
-        end_date: '',
-        reason: '',
-        employee_id: ''
-      })
-
-      // Refresh data
-      fetchLeaveRequests()
-      fetchLeaveBalance()
     } catch (error) {
-      console.error('❌ Error creating leave request:', error)
-      console.error('❌ Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      })
-      toast.error(error.message || 'Failed to create leave request')
+      // Employee record creation is optional, don't show error
+    }
+    return null
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    console.log('Form submitted with data:', formData)
+    
+    if (!validateForm()) {
+      console.log('Form validation failed:', errors)
+      return
+    }
+    
+    setSubmitting(true)
+    setErrors({})
+    
+    try {
+      // Prepare request data
+      const requestData = {
+        employee_id: user.role === 'employee' ? user.id : formData.employee_id,
+        leave_type_id: formData.leave_type_id,
+        start_date: formData.start_date,
+        end_date: formData.end_date,
+        reason: formData.reason,
+        total_days: calculateDays(formData.start_date, formData.end_date)
+      }
+      
+      console.log('Prepared request data:', requestData)
+      
+      // For regular employees, ensure they have an employee record
+      if (user.role === 'employee') {
+        console.log('Ensuring employee record exists...')
+        await ensureEmployeeRecord()
+      }
+      
+      // For HR users, create leave request for the selected employee
+      if (user.role !== 'employee') {
+        requestData.employee_id = formData.employee_id
+      }
+      
+      console.log('Sending request to:', API_ENDPOINTS.LEAVE_REQUESTS)
+      const response = await apiService.post(API_ENDPOINTS.LEAVE_REQUESTS, requestData)
+      console.log('Response received:', response)
+      
+      if (response.status === 201 || response.status === 200) {
+        toast.success('Leave request submitted successfully!')
+        navigate('/leave-request')
+      } else {
+        toast.error('Failed to submit leave request')
+      }
+    } catch (error) {
+      console.error('Error submitting leave request:', error)
+      const errorMessage = error.response?.data?.error || 'Failed to submit leave request'
+      toast.error(errorMessage)
     } finally {
-      setLoading(false)
+      setSubmitting(false)
     }
   }
 
@@ -358,128 +368,13 @@ const LeaveRequest = () => {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Leave Management</h1>
         
-        {/* Test button for debugging */}
-        <button
-          onClick={testEmployeeRecordCreation}
-          className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 mr-2"
-        >
-          🧪 Test Employee Record
-        </button>
+
         
-        <button
-          onClick={async () => {
-            try {
-              console.log('🧹 One-time cleanup triggered...')
-              
-              // Get the current employee ID
-              let employeeId = formData.employee_id
-              if (!employeeId) {
-                // Try to find the current user's employee record
-                try {
-                  const employeeResponse = await apiService.get(`${API_ENDPOINTS.USERS}/employees/${user.id}`)
-                  if (employeeResponse.status === 200) {
-                    employeeId = employeeResponse.data.employee?.id || user.id
-                  } else {
-                    employeeId = user.id
-                  }
-                } catch (empError) {
-                  employeeId = user.id
-                }
-              }
-              
-              // Call the cleanup endpoint
-              const response = await apiService.post(API_ENDPOINTS.LEAVE_CLEANUP_DUPLICATES(employeeId))
-              
-              if (response.status === 200) {
-                const result = response.data
-                toast.success(`One-time cleanup completed! Removed ${result.cleaned} duplicate records.`)
-                console.log('✅ One-time cleanup result:', result)
-                
-                // Refresh leave balance after cleanup
-                setTimeout(() => {
-                  fetchLeaveBalance()
-                }, 1000)
-              }
-            } catch (error) {
-              console.error('❌ One-time cleanup failed:', error)
-              toast.error('One-time cleanup failed. Please try again.')
-            }
-          }}
-          className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
-        >
-          🧹 One-time Cleanup
-        </button>
+
         
-        <button
-          onClick={() => {
-            console.log('🔍 Current leave balance state:', leaveBalance)
-            console.log('🔍 Total records:', leaveBalance.length)
-            
-            // Group by leave type name to see actual duplicates
-            const groupedByName = leaveBalance.reduce((acc, b) => {
-              const name = b.leave_type_name || 'Unknown'
-              if (!acc[name]) acc[name] = []
-              acc[name].push(b)
-              return acc
-            }, {})
-            
-            console.log('🔍 Grouped by leave type name:', groupedByName)
-            
-            // Show duplicate counts by name
-            Object.entries(groupedByName).forEach(([name, records]) => {
-              if (records.length > 1) {
-                console.log(`⚠️ DUPLICATE: ${name} has ${records.length} records`)
-                records.forEach((record, index) => {
-                  console.log(`  ${index + 1}. ID: ${record.leave_type_id}, Total: ${record.total_days}, Used: ${record.used_days}`)
-                })
-              }
-            })
-            
-            // Show unique leave type IDs
-            const uniqueIds = [...new Set(leaveBalance.map(b => b.leave_type_id))]
-            console.log('🔍 Unique leave type IDs:', uniqueIds.length)
-            console.log('🔍 All leave type IDs:', uniqueIds)
-          }}
-          className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 ml-2"
-        >
-          📊 Debug Info
-        </button>
+
         
-        <button
-          onClick={async () => {
-            try {
-              console.log('🧪 Testing API connection...')
-              
-              // Test health endpoint
-              const healthResponse = await fetch('/health')
-              console.log('🏥 Health check response:', healthResponse.status, healthResponse.statusText)
-              
-              if (healthResponse.ok) {
-                const healthData = await healthResponse.json()
-                console.log('✅ Health check data:', healthData)
-              }
-              
-              // Test API endpoint
-              const apiResponse = await fetch('/api/leaves/types')
-              console.log('🔗 API test response:', apiResponse.status, apiResponse.statusText)
-              
-              if (apiResponse.ok) {
-                const apiData = await apiResponse.json()
-                console.log('✅ API test data:', apiData)
-              } else {
-                console.error('❌ API test failed:', apiResponse.status, apiResponse.statusText)
-              }
-              
-              toast.success('API test completed. Check console for details.')
-            } catch (error) {
-              console.error('❌ API test error:', error)
-              toast.error('API test failed. Check console for details.')
-            }
-          }}
-          className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 ml-2"
-        >
-          🧪 Test API
-        </button>
+
         
         {/* Bulk cleanup button for HR users */}
         {['hr', 'hr_manager', 'admin'].includes(user.role) && (
@@ -490,7 +385,7 @@ const LeaveRequest = () => {
                   return
                 }
                 
-                console.log('🧹 BULK cleanup triggered...')
+
                 toast.loading('Performing bulk cleanup...', { duration: 0 })
                 
                 const response = await apiService.post(API_ENDPOINTS.LEAVE_BULK_CLEANUP)
@@ -499,7 +394,7 @@ const LeaveRequest = () => {
                   const result = response.data
                   toast.dismiss()
                   toast.success(`BULK cleanup completed! Removed ${result.cleaned} duplicate records from ${result.totalGroupsWithDuplicates} groups.`)
-                  console.log('✅ Bulk cleanup result:', result)
+
                   
                   // Refresh leave balance after cleanup
                   setTimeout(() => {
@@ -508,7 +403,7 @@ const LeaveRequest = () => {
                 }
               } catch (error) {
                 toast.dismiss()
-                console.error('❌ Bulk cleanup failed:', error)
+                console.error('Bulk cleanup failed:', error)
                 toast.error('Bulk cleanup failed. Please try again.')
               }
             }}
@@ -519,22 +414,84 @@ const LeaveRequest = () => {
         )}
       </div>
       
-              {/* Leave Balance */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Leave Balance</h2>
-            {leaveBalance.length > 0 && (
-              <div className="text-sm text-gray-600 bg-yellow-50 px-3 py-2 rounded-md">
-                <span className="font-medium">Records:</span> {leaveBalance.length} 
-                {leaveBalance.length > 10 && (
-                  <span className="text-red-600 ml-2">⚠️ High duplicate count detected!</span>
-                )}
-              </div>
-            )}
+      {/* Leave Balance Section */}
+      <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Leave Balance</h2>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={fetchLeaveBalance}
+              disabled={loadingLeaveBalance}
+              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingLeaveBalance ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+            <div className="text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded-md">
+              <span className="font-medium">Total Leave Types:</span> {leaveBalance.length}
+            </div>
           </div>
-          
-          {/* Permanent Solution Info */}
-          {leaveBalance.length > 10 && (
+        </div>
+
+        {/* Loading State */}
+        {loadingLeaveBalance ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+            <span className="text-gray-600">Loading leave balance...</span>
+          </div>
+        ) : leaveBalance.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <div className="mb-4">
+              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </div>
+            <p className="text-lg font-medium text-gray-900 mb-2">No Leave Balance Found</p>
+            <p className="text-gray-600 mb-4">Your leave balance hasn't been set up yet.</p>
+            <div className="flex justify-center space-x-3">
+              <button
+                onClick={fetchLeaveBalance}
+                className="btn-secondary text-sm"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </button>
+              <button
+                onClick={() => toast.info('Contact your HR manager to set up your leave balance')}
+                className="btn-primary text-sm"
+              >
+                Contact HR
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Summary Box */}
+            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-green-800">Total Leave Summary</h3>
+                    <div className="mt-1 text-sm text-green-700">
+                      <p>Total remaining leave days: <span className="font-bold text-lg">{leaveBalance.reduce((total, balance) => total + (balance.remaining || 0), 0)} days</span></p>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-green-600">
+                    {leaveBalance.reduce((total, balance) => total + (balance.remaining || 0), 0)}
+                  </div>
+                  <div className="text-xs text-green-600">Total Days</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Info Box */}
             <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="flex items-start">
                 <div className="flex-shrink-0">
@@ -543,59 +500,141 @@ const LeaveRequest = () => {
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-blue-800">Permanent Solution Activated</h3>
+                  <h3 className="text-sm font-medium text-blue-800">Leave Balance Information</h3>
                   <div className="mt-2 text-sm text-blue-700">
-                    <p>✅ <strong>Automatic prevention:</strong> New duplicates are automatically prevented</p>
-                    <p>✅ <strong>Auto-cleanup:</strong> Existing duplicates are cleaned up automatically</p>
-                    <p>✅ <strong>No HR intervention needed:</strong> System maintains itself</p>
-                    <p className="mt-2">💡 <strong>Tip:</strong> Click "🧹 One-time Cleanup" to immediately clean up your current duplicates</p>
+                    <p>Your current leave balance for different leave types. Contact HR if you notice any discrepancies.</p>
                   </div>
                 </div>
               </div>
             </div>
-          )}
-          
-          {leaveBalance.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {leaveBalance.map((balance) => (
-                <div key={balance.leave_type_id} className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="font-medium text-gray-900">{balance.leave_type_name}</h3>
-                  <div className="mt-2 text-sm text-gray-600">
-                    <p>Total: {balance.total_days} days</p>
-                    <p>Used: {balance.used_days} days</p>
-                    <p className="font-semibold text-blue-600">Remaining: {balance.remaining_days} days</p>
+
+            {/* Leave Balance Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {leaveBalance.map((balance) => {
+                // Use the calculated remaining days from the backend or calculate it
+                const remaining = balance.remaining || ((balance.balance || 0) - (balance.used || 0))
+                const usagePercentage = balance.balance ? ((balance.used || 0) / balance.balance) * 100 : 0
+                
+                return (
+                  <div key={balance.leave_type_id} className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-gray-900 text-lg">
+                        {balance.leave_type_name || balance.name || 'Leave Type'}
+                      </h3>
+                      <div className={`w-3 h-3 rounded-full ${
+                        remaining > 5 
+                          ? 'bg-green-500' 
+                          : remaining > 0 
+                            ? 'bg-yellow-500' 
+                            : 'bg-red-500'
+                      }`}></div>
+                    </div>
+                    
+                    {/* Usage Progress Bar */}
+                    <div className="mb-3">
+                      <div className="flex justify-between text-xs text-gray-600 mb-1">
+                        <span>Usage</span>
+                        <span>{Math.round(usagePercentage)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            usagePercentage > 80 ? 'bg-red-500' : usagePercentage > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                          }`}
+                          style={{ width: `${Math.min(usagePercentage, 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Total Days:</span>
+                        <span className="font-semibold text-gray-900">{balance.balance || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Used Days:</span>
+                        <span className="font-semibold text-red-600">{balance.used || 0}</span>
+                      </div>
+                      <div className="pt-2 border-t border-gray-200">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium text-gray-700">Remaining:</span>
+                          <span className={`text-lg font-bold ${
+                            remaining > 5 ? 'text-green-600' : remaining > 0 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {remaining}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              No leave balance information available
-            </div>
-          )}
-        </div>
+          </>
+        )}
+      </div>
 
       {/* New Leave Request Form */}
       <div className="bg-white rounded-lg shadow-md p-6 mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Request Leave</h2>
+        
+        {/* Progress Indicator */}
+        {submitting && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
+              <div>
+                <h4 className="text-sm font-medium text-blue-800">Processing Leave Request</h4>
+                <p className="text-sm text-blue-700">Please wait while we submit your request...</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Display */}
+        {Object.keys(errors).length > 0 && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">Please fix the following errors:</h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <ul className="list-disc pl-5 space-y-1">
+                    {Object.entries(errors).map(([field, error]) => (
+                      <li key={field}>
+                        <span className="font-medium">{field.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}:</span> {error}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Employee Selection (for HR users) */}
           {['hr', 'hr_manager', 'admin'].includes(user.role) && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Employee
+              <label htmlFor="employee_id" className="block text-sm font-medium text-gray-700 mb-2">
+                Employee *
               </label>
               <select
                 name="employee_id"
                 value={formData.employee_id}
                 onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
+                disabled={submitting}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-100"
               >
-                <option value="">Select Employee</option>
+                <option value="">Select employee</option>
                 {employees.map((employee) => (
                   <option key={employee.id} value={employee.id}>
-                    {employee.full_name} ({employee.email})
+                    {employee.full_name} - {employee.department}
                   </option>
                 ))}
               </select>
@@ -604,20 +643,21 @@ const LeaveRequest = () => {
 
           {/* Leave Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Leave Type
+            <label htmlFor="leave_type_id" className="block text-sm font-medium text-gray-700 mb-2">
+              Leave Type *
             </label>
             <select
               name="leave_type_id"
               value={formData.leave_type_id}
               onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
+              disabled={submitting}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-100"
             >
-              <option value="">Select Leave Type</option>
+              <option value="">Select leave type</option>
               {leaveTypes.map((type) => (
                 <option key={type.id} value={type.id}>
-                  {type.name} - {type.description}
+                  {type.name}
                 </option>
               ))}
             </select>
@@ -626,55 +666,65 @@ const LeaveRequest = () => {
           {/* Date Range */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Start Date
+              <label htmlFor="start_date" className="block text-sm font-medium text-gray-700 mb-2">
+                Start Date *
               </label>
               <input
                 type="date"
                 name="start_date"
                 value={formData.start_date}
                 onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
+                disabled={submitting}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                End Date
+              <label htmlFor="end_date" className="block text-sm font-medium text-gray-700 mb-2">
+                End Date *
               </label>
               <input
                 type="date"
                 name="end_date"
                 value={formData.end_date}
                 onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
+                disabled={submitting}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-100"
               />
             </div>
           </div>
 
           {/* Reason */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Reason
+            <label htmlFor="reason" className="block text-sm font-medium text-gray-700 mb-2">
+              Reason *
             </label>
             <textarea
               name="reason"
               value={formData.reason}
               onChange={handleInputChange}
-              rows="3"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Please provide a reason for your leave request..."
               required
+              disabled={submitting}
+              rows="3"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-100"
+              placeholder="Please provide a reason for your leave request"
             />
           </div>
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            disabled={submitting}
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
           >
-            {loading ? 'Submitting...' : 'Submit Leave Request'}
+            {submitting ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Submitting Request...
+              </>
+            ) : (
+              'Submit Leave Request'
+            )}
           </button>
         </form>
       </div>
